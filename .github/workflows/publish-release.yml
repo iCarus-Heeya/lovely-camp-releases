@@ -1,0 +1,66 @@
+name: Publish Android release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing material for this build only
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > lovely-reader-release.jks
+          cat > release-signing.properties <<EOF
+          storeFile=lovely-reader-release.jks
+          storePassword=$RELEASE_STORE_PASSWORD
+          keyAlias=$RELEASE_KEY_ALIAS
+          keyPassword=$RELEASE_KEY_PASSWORD
+          EOF
+
+      - name: Validate release tag matches the Android version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION_NAME=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= *([0-9]+).*/\1/')
+          test "$RELEASE_TAG" = "v${VERSION_NAME}+${VERSION_CODE}"
+
+      - name: Test and assemble the signed release APK
+        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare named asset and notes
+        shell: bash
+        run: |
+          VERSION_NAME=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          cp app/build/outputs/apk/release/app-release.apk "lovely-camp-v${VERSION_NAME}.apk"
+          SHA256=$(sha256sum "lovely-camp-v${VERSION_NAME}.apk" | awk '{print $1}')
+          printf '老婆的小营地 v%s\n\n自动构建并签名。\n\nSHA-256: `%s`\n' "$VERSION_NAME" "$SHA256" > release-notes.md
+
+      - name: Create GitHub Release and upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: lovely-camp-v*.apk
+          fail_on_unmatched_files: true

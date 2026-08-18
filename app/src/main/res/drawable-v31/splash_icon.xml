@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Transparent placeholder: the OS splash screen on Android 12+ can only show
+     a small centered icon, so we end it immediately and show the fullscreen
+     splash image via the window background / in-app splash. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#00FFFFFF"
+        android:pathData="M0,0h48v48h-48z" />
+</vector>

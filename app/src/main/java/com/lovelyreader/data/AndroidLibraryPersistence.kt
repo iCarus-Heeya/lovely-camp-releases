@@ -1,0 +1,59 @@
+package com.lovelyreader.data
+
+import android.content.Context
+import com.lovelyreader.domain.AppTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
+    private val preferences = context.getSharedPreferences("lovely_reader_library", Context.MODE_PRIVATE)
+    private val codec = LibrarySnapshotCodec()
+    private val contentPersistence = ChapterContentFilePersistence(context)
+
+    override suspend fun save(snapshot: LibrarySnapshot) = withContext(Dispatchers.IO) {
+        // 大段章节文本单独写文件，SharedPreferences 只存元数据，避免 OOM。
+        contentPersistence.saveOfflineChapters(snapshot.offlineChapters)
+        contentPersistence.savePartialChapters(snapshot.partialChapters)
+
+        val encoded = codec.encode(
+            snapshot.copy(
+                offlineChapters = snapshot.offlineChapters.map { it.copy(content = "") },
+                partialChapters = snapshot.partialChapters.map { it.copy(content = "") }
+            )
+        )
+        preferences.edit()
+            .putString("books", encoded.books)
+            .putString("progress", encoded.progress)
+            .putString("bookmarks", encoded.bookmarks)
+            .putString("notes", encoded.notes)
+            .putString("seenTitles", encoded.seenTitles)
+            .putString("offlineChapters", encoded.offlineChapters)
+            .putString("partialChapters", encoded.partialChapters)
+            .putString("readerFontSize", encoded.readerFontSize)
+            .putString("readerNightMode", encoded.readerNightMode)
+            .putString("appTheme", encoded.appTheme)
+            .apply()
+    }
+
+    override suspend fun load(): LibrarySnapshot? = withContext(Dispatchers.IO) {
+        if (!preferences.contains("books")) return@withContext null
+        val meta = codec.decode(
+            EncodedLibrarySnapshot(
+                books = preferences.getString("books", "").orEmpty(),
+                progress = preferences.getString("progress", "").orEmpty(),
+                bookmarks = preferences.getString("bookmarks", "").orEmpty(),
+                notes = preferences.getString("notes", "").orEmpty(),
+                seenTitles = preferences.getString("seenTitles", "").orEmpty(),
+                offlineChapters = preferences.getString("offlineChapters", "").orEmpty(),
+                partialChapters = preferences.getString("partialChapters", "").orEmpty(),
+                readerFontSize = preferences.getString("readerFontSize", null) ?: defaultReaderFontSize.toString(),
+                readerNightMode = preferences.getString("readerNightMode", null) ?: "false",
+                appTheme = preferences.getString("appTheme", null) ?: AppTheme.Warm.name
+            )
+        )
+        meta.copy(
+            offlineChapters = contentPersistence.loadOfflineChapters(meta.offlineChapters),
+            partialChapters = contentPersistence.loadPartialChapters(meta.partialChapters)
+        )
+    }
+}
