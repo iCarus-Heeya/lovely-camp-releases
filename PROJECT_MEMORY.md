@@ -7,6 +7,7 @@
 - Fresh ASCII copy `C:\CodexTemp\lovely-auto-update-secure-final-20260818` ran `testDebugUnitTest` successfully and `assembleRelease` successfully. No ADB target, Emulator binary, or AVD was available, so emulator verification is not claimed.
 - Public-source audit removed a hard-coded GitHub sync credential. User-supplied sync credentials continue to work; blank credentials disable sync. `.gitignore` excludes signing material, local SDK configuration and APK outputs. The release workflow now uses same-repository `GITHUB_TOKEN` rather than a cross-repository PAT.
 - Live GitHub check on 2026-08-18 showed the public `iCarus-Heeya/lovely-camp-releases` repository has no Releases. The client is ready but an online update cannot be discovered until the four signing Actions Secrets and tag `v0.8.13+76` create the first Release. See `docs/update/task-42-automatic-update-check.md` and `docs/update/release-0.8.13-automatic-update-check.md`.
+- Local source Git repository commit `54e1c58` is ready for that push. Local Git redirect sent GitHub traffic to a certificate-expired mirror and direct GitHub 443 was blocked; no TLS bypass was used. The in-app GitHub page is reachable but logged out, so no source/Secret upload is claimed.
 
 ## Latest Update: 2026-08-16 v0.8.11 trusted DNS bootstrap correction
 
