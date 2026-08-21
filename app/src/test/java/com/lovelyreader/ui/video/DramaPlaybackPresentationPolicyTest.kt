@@ -9,8 +9,8 @@ import org.junit.Test
 
 class DramaPlaybackPresentationPolicyTest {
     @Test
-    fun `episode picker uses four compact columns`() {
-        assertEquals(4, compactEpisodeGridColumns())
+    fun `episode picker uses five compact columns`() {
+        assertEquals(5, compactEpisodeGridColumns())
     }
 
     @Test

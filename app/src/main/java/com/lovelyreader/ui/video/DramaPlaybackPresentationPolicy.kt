@@ -5,7 +5,8 @@ import com.lovelyreader.video.VideoPlaybackMode
 import com.lovelyreader.video.castMediaTarget
 
 /** Small, deterministic rules shared by the compact episode and playback surfaces. */
-internal fun compactEpisodeGridColumns(): Int = 4
+/** Five columns match the narrow episode tiles in the 9:16 detail concept. */
+internal fun compactEpisodeGridColumns(): Int = 5
 
 internal fun canDownloadFromMedia(media: VideoMediaLink?): Boolean =
     media?.playbackMode == VideoPlaybackMode.DIRECT_MEDIA && !media.directMp4Url.isNullOrBlank()

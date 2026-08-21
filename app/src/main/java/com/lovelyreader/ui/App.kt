@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
@@ -378,25 +381,41 @@ private fun AppExperienceSwitch(
     selected: AppExperience,
     onSelected: (AppExperience) -> Unit
 ) {
-    Surface(tonalElevation = 3.dp, shadowElevation = 2.dp) {
+    Surface(
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (selected == AppExperience.Reader) {
-                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("小书架") }
+                Button(
+                    onClick = {},
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
+                ) { Text("小书架") }
             } else {
                 OutlinedButton(
                     onClick = { onSelected(AppExperience.Reader) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = MaterialTheme.shapes.large
                 ) { Text("小书架") }
             }
             if (selected == AppExperience.Drama) {
-                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("追剧") }
+                Button(
+                    onClick = {},
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
+                ) { Text("追剧") }
             } else {
                 OutlinedButton(
                     onClick = { onSelected(AppExperience.Drama) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = MaterialTheme.shapes.large
                 ) { Text("追剧") }
             }
         }

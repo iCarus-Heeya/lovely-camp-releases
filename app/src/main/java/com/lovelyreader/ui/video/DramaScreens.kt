@@ -117,6 +117,7 @@ fun DramaScreen(
             rootStatus = rootStatus,
             query = query,
             search = search,
+            downloads = downloads,
             recentViewing = recentViewing,
             onResumeRecent = {
                 viewModel.resumeRecentViewing()
@@ -233,6 +234,7 @@ private fun DramaHomeStyledScreen(
     rootStatus: DramaRootUiState,
     query: String,
     search: DramaSearchUiState,
+    downloads: List<VideoDownloadTask>,
     recentViewing: com.lovelyreader.video.VideoRecentViewing?,
     onResumeRecent: () -> Unit,
     onSearch: (String) -> Unit,
@@ -248,42 +250,76 @@ private fun DramaHomeStyledScreen(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("今晚想看点什么", style = MaterialTheme.typography.displaySmall, color = colors.cocoa)
-                Text("慢慢挑一部喜欢的，留一点轻松给自己。", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+                Text("今晚想看点什么", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+                Text("慢慢挑一部喜欢的，留一点轻松给自己。", style = MaterialTheme.typography.bodyLarge, color = colors.softGray)
             }
         }
         recentViewing?.let { recent ->
             item {
                 SoftPanel(modifier = Modifier.clickable(onClick = onResumeRecent)) {
-                    Text("继续观看", style = MaterialTheme.typography.labelLarge, color = colors.roseBeige)
-                    Text(recent.titleName, style = MaterialTheme.typography.titleMedium, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("回到 ${recentEpisodeDisplayLabel(recent.episodeId)}", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
-                    Text("点这里继续观看", style = MaterialTheme.typography.labelMedium, color = colors.roseBeige)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("继续观看", style = MaterialTheme.typography.labelLarge, color = colors.roseBeige)
+                            Text(recent.titleName, style = MaterialTheme.typography.titleLarge, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("回到 ${recentEpisodeDisplayLabel(recent.episodeId)}", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+                        }
+                        androidx.compose.material3.IconButton(onClick = onResumeRecent) {
+                            androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.CircleShape, color = colors.roseBeige) {
+                                Text("▶", color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+                            }
+                        }
+                    }
                 }
             }
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 OutlinedTextField(
-                    value = editableQuery, onValueChange = { editableQuery = it }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜一搜想看的剧") }, placeholder = { Text("例如：南部档案") }, singleLine = true,
+                    value = editableQuery,
+                    onValueChange = { editableQuery = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("搜一搜想看的剧") },
+                    leadingIcon = { Text("⌕", color = colors.softGray, style = MaterialTheme.typography.headlineSmall) },
+                    singleLine = true,
                     shape = MaterialTheme.shapes.large,
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedBorderColor = colors.roseBeige, unfocusedBorderColor = colors.lineColor, focusedContainerColor = colors.paper, unfocusedContainerColor = colors.paper, focusedTextColor = colors.cocoa, unfocusedTextColor = colors.cocoa)
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.roseBeige,
+                        unfocusedBorderColor = colors.lineColor,
+                        focusedContainerColor = colors.paper,
+                        unfocusedContainerColor = colors.paper,
+                        focusedTextColor = colors.cocoa,
+                        unfocusedTextColor = colors.cocoa,
+                        focusedPlaceholderColor = colors.softGray,
+                        unfocusedPlaceholderColor = colors.softGray
+                    )
                 )
-                Button(onClick = { onSearch(editableQuery) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = MaterialTheme.shapes.large, colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White)) {
-                    Text("开始找剧", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.size(8.dp))
+                Button(onClick = { onSearch(editableQuery) }, modifier = Modifier.height(50.dp), shape = MaterialTheme.shapes.large, colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp)) {
+                    Text("开始找剧", fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("为你找到的剧", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
-                OutlinedButton(onClick = onOpenDownloads, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor)) { Text("下载列表") }
+            Text("继续收看", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
+        }
+        if (downloads.isNotEmpty()) {
+            items(downloads.take(3), key = { "preview-${it.id}" }) { task ->
+                DramaDownloadPreviewCard(task)
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("找到的剧集", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
+                OutlinedButton(onClick = onOpenDownloads, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)) { Text("下载列表") }
             }
         }
         onShowDiagnostics?.let { onClick ->
@@ -374,6 +410,30 @@ private fun DramaTitleCard(title: VideoTitle, onClick: () -> Unit) {
                 title.summary?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 Text("查看选集 ›", style = MaterialTheme.typography.labelMedium, color = colors.roseBeige)
             }
+        }
+    }
+}
+
+@Composable
+private fun DramaDownloadPreviewCard(task: VideoDownloadTask) {
+    val colors = appColors()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = colors.paper.copy(alpha = 0.92f)),
+        border = BorderStroke(1.dp, colors.lineColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("${task.sourceId} · ${recentEpisodeDisplayLabel(task.episodeId)}", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                Text(task.status.label(), style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+            }
+            Text("›", color = colors.cocoa, style = MaterialTheme.typography.headlineMedium)
         }
     }
 }
@@ -504,54 +564,98 @@ private fun DramaDetailCompactScreen(
     LazyVerticalGrid(
         columns = GridCells.Fixed(compactEpisodeGridColumns()),
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor)) { Text("返回找剧") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)) {
+                    Text("‹  返回找剧", color = colors.cocoa)
+                }
+                Text("剧集详情", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
+            }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             SoftPanel {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
-                    DramaPoster(url = detailTitle?.posterUrl, title = detailTitle?.name ?: "剧集详情", modifier = Modifier.size(76.dp, 108.dp).clip(MaterialTheme.shapes.small))
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
-                        Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
+                    DramaPoster(
+                        url = detailTitle?.posterUrl,
+                        title = detailTitle?.name ?: "剧集详情",
+                        modifier = Modifier.size(132.dp, 190.dp).clip(MaterialTheme.shapes.medium)
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+                        detailTitle?.summary?.takeIf(String::isNotBlank)?.let {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.cocoa, maxLines = 7, overflow = TextOverflow.Ellipsis)
+                        }
+                        detailTitle?.releaseInfo?.takeIf(String::isNotBlank)?.let { Text("上映：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray) }
+                        detailTitle?.categoryInfo?.takeIf(String::isNotBlank)?.let { Text("分类：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        detailTitle?.castInfo?.takeIf(String::isNotBlank)?.let { Text("主演：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                        detailTitle?.updateInfo?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.roseBeige, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        if (isLoading || detailMessage.isNotBlank()) {
+                            Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.labelMedium, color = colors.roseBeige)
+                        }
                     }
                 }
             }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) { DramaMetadataBlock(detailTitle) }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("选择播放源", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                Text("选择播放源", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(sources, key = { it.id }) { source ->
                         val chosen = selectedSource?.id == source.id
                         OutlinedButton(
                             onClick = { onSelectSource(source) }, shape = MaterialTheme.shapes.large,
                             border = BorderStroke(1.dp, if (chosen) colors.roseBeige else colors.lineColor),
-                            colors = ButtonDefaults.outlinedButtonColors(containerColor = if (chosen) colors.blush else colors.paper)
+                            colors = if (chosen) {
+                                ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White)
+                            } else {
+                                ButtonDefaults.outlinedButtonColors(containerColor = colors.paper, contentColor = colors.cocoa)
+                            }
                         ) { Text(source.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Text("当前网站播放器未公开可下载的 MP4，因此不显示无效下载按钮；点集号即可播放。", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+            SoftPanel {
+                Text("当前片源未公开可下载 MP4", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+                Text("点集号播放；如来源提供公开 MP4，选中后可加入下载。", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+            }
         }
         items(episodes, key = { it.id }) { episode ->
-            val chosen = false
+            val chosen = episode.id in selectedEpisodeIds
             Card(
-                modifier = Modifier.fillMaxWidth().clickable { onPlayEpisode(episode) },
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = if (chosen) colors.blush else colors.paper),
-                border = BorderStroke(1.dp, if (chosen) colors.roseBeige else colors.lineColor)
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                colors = CardDefaults.cardColors(containerColor = if (chosen) colors.blush.copy(alpha = .60f) else colors.paper.copy(alpha = .90f)),
+                border = BorderStroke(1.dp, if (chosen) colors.roseBeige else colors.lineColor),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
-                Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
-                    Text(episode.label, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelLarge, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(if (chosen) "已选" else "播放", style = MaterialTheme.typography.labelSmall, color = if (chosen) colors.roseDust else colors.softGray)
+                Column(Modifier.padding(vertical = 9.dp, horizontal = 4.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        episode.label.removePrefix("第").removeSuffix("集"),
+                        modifier = Modifier.fillMaxWidth().clickable { onPlayEpisode(episode) },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (chosen) colors.roseDust else colors.cocoa,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Text(
+                        if (chosen) "已选" else "点此播放",
+                        modifier = Modifier.fillMaxWidth().clickable { onToggleEpisode(episode.id) },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chosen) colors.roseDust else colors.softGray,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -661,104 +765,98 @@ fun DramaPlayerScreen(
     }
 
     Column(
-        modifier = modifier.fillMaxSize().background(appColors().cream).padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = modifier.fillMaxSize().background(Color(0xFF111111)),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth().background(Color(0xFF0A0A0A)).padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
-            OutlinedButton(onClick = onBack) { Text("返回选集") }
-            if (castTarget != null) {
-                Button(onClick = {
-                    showDlnaPicker = true
-                    dlnaRenderers = emptyList()
-                    dlnaMessage = "正在搜索同一 Wi-Fi 下支持 DLNA 的电视…"
-                    dlnaController.discover { devices, message ->
-                        dlnaRenderers = devices
-                        dlnaMessage = message
-                    }
-                }) { Text("投屏到电视") }
-            }
-            if (castTarget != null && castController.isAvailable) {
-                AndroidView(
+            OutlinedButton(
+                onClick = onBack,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = .45f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+            ) { Text("‹  返回选集") }
+            Text(playback.episode?.label ?: "视频播放", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            when {
+                playback.isLoading -> Text(playback.message, color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                usesSitePlayer && playbackUrl != null -> SitePlayerWebView(
+                    episodeUrl = playbackUrl,
+                    onMediaDiscovered = { candidate -> discoveredMedia = candidate },
+                    modifier = Modifier.fillMaxSize()
+                )
+                player != null -> AndroidView(
                     factory = { viewContext ->
-                        MediaRouteButton(viewContext).apply {
-                            contentDescription = "选择投屏设备"
-                            CastButtonFactory.setUpMediaRouteButton(viewContext, this)
+                        PlayerView(viewContext).apply {
+                            this.player = player
+                            val controls = nativePlayerControls()
+                            useController = true
+                            controllerAutoShow = true
+                            controllerHideOnTouch = controls.hideOnTouch
+                            controllerShowTimeoutMs = controls.showTimeoutMs
+                            setFullscreenButtonClickListener { fullscreen -> showNativeFullscreen = fullscreen }
+                            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         }
                     },
-                    modifier = Modifier.size(48.dp)
+                    update = { it.player = player },
+                    modifier = Modifier.fillMaxSize()
                 )
-            } else if (usesSitePlayer && castTarget == null) {
-                Text(dramaStatusCopy(DramaStatus.CastTargetUnavailable), style = MaterialTheme.typography.labelSmall, color = appColors().softGray)
+                else -> Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("本集暂时无法在应用内播放", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    Text(playback.message.ifBlank { "该播放源没有提供公开可播放的媒体地址。请返回选集后尝试其他播放源。" }, style = MaterialTheme.typography.bodyMedium, color = Color.LightGray)
+                }
             }
         }
-        Text(playback.episode?.label ?: "视频播放", style = MaterialTheme.typography.headlineSmall)
-        if (usesSitePlayer) {
-            Text("正在使用片源自己的播放器", style = MaterialTheme.typography.bodySmall, color = appColors().softGray)
-        }
-        if (castTarget != null) {
-            Text(
-                "已识别可投媒体，可搜索同一 Wi-Fi 下的 DLNA 电视。",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-        if (castMessage.isNotBlank()) {
-            Text(castMessage, style = MaterialTheme.typography.bodySmall)
-        }
-        when {
-            playback.isLoading -> Text(playback.message)
-            usesSitePlayer && playbackUrl != null -> SitePlayerWebView(
-                episodeUrl = playbackUrl,
-                onMediaDiscovered = { candidate -> discoveredMedia = candidate },
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-            player != null -> AndroidView(
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        this.player = player
-                        val controls = nativePlayerControls()
-                        useController = true
-                        controllerAutoShow = true
-                        controllerHideOnTouch = controls.hideOnTouch
-                        controllerShowTimeoutMs = controls.showTimeoutMs
-                        setFullscreenButtonClickListener { fullscreen -> showNativeFullscreen = fullscreen }
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { it.player = player },
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-            else -> SoftPanel {
-                Text("本集暂时无法在应用内播放", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
-                Text(
-                    playback.message.ifBlank { "该播放源没有提供公开可播放的媒体地址。请返回选集后尝试其他播放源。" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = appColors().softGray
-                )
+        Column(modifier = Modifier.fillMaxWidth().background(Color(0xFF171717)).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("片源", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                if (castTarget != null) {
+                    Button(onClick = {
+                        showDlnaPicker = true
+                        dlnaRenderers = emptyList()
+                        dlnaMessage = "正在搜索同一 Wi-Fi 下支持 DLNA 的电视…"
+                        dlnaController.discover { devices, message ->
+                            dlnaRenderers = devices
+                            dlnaMessage = message
+                        }
+                    }, colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige, contentColor = Color.White), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) { Text("投屏到电视") }
+                }
+                if (castTarget != null && castController.isAvailable) {
+                    AndroidView(
+                        factory = { viewContext ->
+                            MediaRouteButton(viewContext).apply {
+                                contentDescription = "选择投屏设备"
+                                CastButtonFactory.setUpMediaRouteButton(viewContext, this)
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                if (usesSitePlayer && castTarget == null) {
+                    Text(dramaStatusCopy(DramaStatus.CastTargetUnavailable), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                }
             }
-        }
-        if (episodes.isNotEmpty()) {
-            Text("快速换集", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(compactEpisodeGridColumns()),
-                modifier = Modifier.fillMaxWidth().height(152.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(episodes, key = { it.id }) { episode ->
-                    val current = playback.episode?.id == episode.id
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { if (!current) onPlayEpisode(episode) },
-                        shape = MaterialTheme.shapes.small,
-                        colors = CardDefaults.cardColors(containerColor = if (current) appColors().blush else appColors().paper),
-                        border = BorderStroke(1.dp, if (current) appColors().roseBeige else appColors().lineColor)
-                    ) {
-                        Text(episode.label, modifier = Modifier.padding(vertical = 9.dp, horizontal = 6.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = appColors().cocoa)
+            if (castMessage.isNotBlank()) Text(castMessage, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+            if (usesSitePlayer) Text("当前片源使用站内播放器，应用不会伪造公开投屏或下载地址。", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            if (episodes.isNotEmpty()) {
+                Text("快速换集", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(episodes, key = { it.id }) { episode ->
+                        val current = playback.episode?.id == episode.id
+                        Card(
+                            modifier = Modifier.size(width = 62.dp, height = 52.dp).clickable { if (!current) onPlayEpisode(episode) },
+                            shape = MaterialTheme.shapes.small,
+                            colors = CardDefaults.cardColors(containerColor = if (current) Color(0xFF9F4533) else Color(0xFF292929)),
+                            border = BorderStroke(1.dp, if (current) Color(0xFFE85D43) else Color(0xFF3A3A3A))
+                        ) {
+                            Box(contentAlignment = androidx.compose.ui.Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Text(episode.label.removePrefix("第").removeSuffix("集"), style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
+                        }
                     }
                 }
             }
@@ -1082,27 +1180,33 @@ private fun DownloadQueueStyledScreen(
 ) {
     val colors = appColors()
     InkWashBackground(modifier.fillMaxSize()) {
-    LazyColumn(modifier = Modifier.fillMaxSize().background(Color.Transparent), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(modifier = Modifier.fillMaxSize().background(Color.Transparent), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor)) { Text("返回找剧") }
-                OutlinedButton(onClick = onRefresh, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.roseBeige)) { Text("刷新状态") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("‹  返回", color = colors.cocoa) }
+                OutlinedButton(onClick = onRefresh, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.roseBeige), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("↻  刷新状态") }
             }
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("慢慢收好", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
-                Text("已选的视频会在这里显示下载进度。", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+                Text("下载列表", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+                Text("已选的视频会在这里显示下载状态。", style = MaterialTheme.typography.bodyLarge, color = colors.softGray)
             }
         }
         if (tasks.isEmpty()) item { SoftPanel { Text("还没有下载任务", style = MaterialTheme.typography.titleMedium, color = colors.cocoa); Text("在选集页选中喜欢的剧集后，就可以把它们放进这里。", style = MaterialTheme.typography.bodySmall, color = colors.softGray) } }
         items(tasks, key = { it.id }) { task ->
-            Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = colors.paper), border = BorderStroke(1.dp, colors.lineColor)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("剧集下载", style = MaterialTheme.typography.labelMedium, color = colors.roseBeige)
-                    Text("第 ${task.episodeId} 集", style = MaterialTheme.typography.titleMedium, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(task.status.label(), style = MaterialTheme.typography.bodySmall, color = colors.softGray)
-                    task.localUri?.let { Text(userFacingDownloadLocation(it), style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = colors.paper.copy(alpha = .92f)), border = BorderStroke(1.dp, colors.lineColor), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(task.sourceId, style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                            Text(recentEpisodeDisplayLabel(task.episodeId), style = MaterialTheme.typography.bodyLarge, color = colors.cocoa)
+                        }
+                        DownloadStatusChip(task.status)
+                    }
+                    if (task.status == VideoDownloadStatus.COMPLETED) {
+                        task.localUri?.let { Text(userFacingDownloadLocation(it), style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
                 }
             }
         }
@@ -1141,7 +1245,21 @@ private fun DownloadTaskCard(task: VideoDownloadTask) {
     }
 }
 
-private fun VideoDownloadStatus.label(): String = when (this) {
+@Composable
+private fun DownloadStatusChip(status: VideoDownloadStatus) {
+    val colors = appColors()
+    val (background, foreground) = when (status) {
+        VideoDownloadStatus.QUEUED -> colors.almond.copy(alpha = .45f) to colors.cocoa
+        VideoDownloadStatus.DOWNLOADING -> Color(0xFFE6F0F9) to Color(0xFF2C6F9E)
+        VideoDownloadStatus.COMPLETED -> Color(0xFFE6EBD9) to Color(0xFF547044)
+        VideoDownloadStatus.FAILED -> Color(0xFFF6DDD3) to Color(0xFFA6462C)
+    }
+    androidx.compose.material3.Surface(shape = MaterialTheme.shapes.large, color = background) {
+        Text(status.label(), modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium, color = foreground)
+    }
+}
+
+internal fun VideoDownloadStatus.label(): String = when (this) {
     VideoDownloadStatus.QUEUED -> "等待下载"
     VideoDownloadStatus.DOWNLOADING -> "正在下载"
     VideoDownloadStatus.COMPLETED -> "已下载完成"
