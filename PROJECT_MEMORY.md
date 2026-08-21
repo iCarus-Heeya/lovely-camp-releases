@@ -1,8 +1,17 @@
 # Project Memory
 
+## Latest Release Candidate: 2026-08-22 Version 0.8.17 - high-fidelity mobile UI
+
+- VersionCode `80`, versionName `0.8.17`, package `com.lovelyreader`, label `老婆的小营地`.
+- The page-level high-fidelity pass now covers bookshelf, book search/featured, book detail, reader, drama home/detail/player/download layouts and settings/update. Reader intentionally omits the global bookshelf/drama switch and bottom app navigation.
+- Release artifact: root `老婆的小营地-v0.8.17.apk`, SHA-256 `56260B29C0700AFD1B60C7B8751B5C1027B84961D4511A0E0407AB2C20D33320`; debug artifact: root `老婆的小营地-debug-v0.8.17.apk`, SHA-256 `1F26170969FF35D37ACBA5456B06B8F81AE8E90139351F25439ABB18EDF46B3B`.
+- `compileDebugKotlin`, `assembleDebug` and `assembleRelease` passed from the source tree. ASCII copy `C:\CodexTemp\lovely-hf-final-20260822` passed the full debug unit suite: 267 tests, 0 failures, 0 errors, 8 skipped.
+- MuMu Android 12 `emulator-5554` (720×1280, 9:16) installed the debug APK and passed screenshot/UI-tree smoke for bookshelf, search, featured results, book detail scroll, reader, drama home and settings. Evidence: `docs/ui/evidence/20260822-high-fidelity/`.
+- The current device did not obtain a usable drama result during this run; drama detail/player/download real-source playback remains an explicit live-site limitation, not a claimed pass.
+
 ## Latest UI Audit: 2026-08-22 — high-fidelity restoration is still incomplete
 
-- The installed and published `v0.8.16+79` package is the current functional build, but it is not a page-level 1:1 implementation of `docs/ui/concepts-20260821/*-v3-1080x2400.png`.
+- Historical baseline for `v0.8.16+79`: the installed package was not a page-level 1:1 implementation of `docs/ui/concepts-20260821/*-v3-1080x2400.png`; v0.8.17+80 supersedes this visual state.
 - Only the shared `InkWashBackground`, real book covers, drama metadata merge, update history and settings cleanup were applied. `BookshelfScreen`, `SearchScreen`, `BookDetailScreen` and the drama/settings surfaces still retain the earlier Material 3 page hierarchy, so the overall appearance remains close to the old release.
 - MuMu screenshots proved functional navigation and data rendering, not visual parity. The high-fidelity plan remains incomplete; the defect and required visual acceptance gate are recorded in `docs/ui/bug-experience.md` record 5 and `docs/ui/release-record.md`.
 
