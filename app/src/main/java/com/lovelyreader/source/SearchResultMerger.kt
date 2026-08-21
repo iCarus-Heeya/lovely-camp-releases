@@ -6,8 +6,9 @@ import com.lovelyreader.domain.SourceCapability
 object SearchResultMerger {
     fun merge(results: List<SearchResult>): List<SearchResult> {
         return results
-            .groupBy { "${it.title.trim()}::${it.author.trim()}" }
+            .groupBy { normalizedTitleKey(it.title) }
             .values
+            .flatMap(::authorCompatibleGroups)
             .map { group ->
                 val canonical = group.maxWithOrNull(
                     compareBy<SearchResult> { SourceCapability.TXT_IMPORT in it.capabilities }
@@ -22,5 +23,21 @@ object SearchResultMerger {
                         ?: group.firstOrNull { !it.latestChapter.isNullOrBlank() }?.latestChapter
                 )
             }
+    }
+
+    private fun authorCompatibleGroups(sameTitle: List<SearchResult>): List<List<SearchResult>> {
+        val known = sameTitle
+            .filter { normalizedAuthorKey(it.author).isNotBlank() }
+            .groupBy { normalizedAuthorKey(it.author) }
+            .values
+            .map { it.toMutableList() }
+            .toMutableList()
+        val unknown = sameTitle.filter { normalizedAuthorKey(it.author).isBlank() }
+        return when {
+            known.size == 1 -> listOf(known.single() + unknown)
+            known.isEmpty() -> listOf(unknown)
+            unknown.isEmpty() -> known
+            else -> known + listOf(unknown)
+        }
     }
 }

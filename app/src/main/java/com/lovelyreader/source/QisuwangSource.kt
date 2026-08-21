@@ -8,16 +8,16 @@ import com.lovelyreader.domain.ChapterContent
 import com.lovelyreader.domain.DownloadOption
 import com.lovelyreader.domain.RankingPeriod
 import com.lovelyreader.domain.SearchResult
-import com.lovelyreader.domain.SizeBand
 import com.lovelyreader.domain.SourceCapability
 import com.lovelyreader.domain.SourceHealth
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import java.net.URI
 
 class QisuwangSource(
-    private val http: HttpTextClient = HttpTextClient()
+    private val http: HttpTextClient = HttpTextClient(),
+    private val discoveryHttp: HttpTextClient = HttpTextClient(
+        connectTimeoutMillis = 6_000,
+        readTimeoutMillis = 8_000
+    )
 ) : NovelSource, BrowsableNovelSource {
     override val sourceId: String = "qisuwang"
     override val displayName: String = "奇书网"
@@ -30,6 +30,7 @@ class QisuwangSource(
     )
 
     private val safety = SourceSafety(baseUrl = baseUrl)
+    private val discoveryAllPaths = listOf("/yanqing/", "/dushi/", "/xuanhuan/", "/xiuzhen/", "/lishi/", "/wangyou/", "/tongren/")
     private val listPaths = listOf("/yanqing/", "/hot/", "/recommendall/", "/new/")
     private val downloadHosts = setOf("down.qishu99.cc", "txt.qishu77.com")
 
@@ -60,7 +61,13 @@ class QisuwangSource(
         return listOf(Chapter(title = "全文TXT", url = downloadPage, order = 0))
     }
 
-    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? {
+    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? =
+        getChapterContentWithProgress(chapterUrl) { _, _ -> }
+
+    override suspend fun getChapterContentWithProgress(
+        chapterUrl: String,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
+    ): ChapterContent? {
         val downloadPage = safety.requireAllowed(chapterUrl)
         val html = http.get(downloadPage, safety)
         val options = parseDownloadOptions(html).filter { it.allowed }
@@ -70,7 +77,7 @@ class QisuwangSource(
             ?: HtmlTools.firstMatch(html, "<meta[^>]+property=\"og:title\"[^>]+content=\"([^\"]+)\"")
             ?: "全文TXT"
         for (option in options) {
-            val text = http.get(option.url, referer = downloadPage).trim()
+            val text = http.getWithProgress(option.url, referer = downloadPage, onProgress = onProgress).trim()
                 .takeIf(SourceContentGuard::isReadableNovelText)
                 ?: continue
             return ChapterContent(
@@ -90,7 +97,7 @@ class QisuwangSource(
     }
 
     override suspend fun healthCheck(): SourceHealth {
-        return SourceHealth(sourceId, available = true, message = "可解析分类、排行、详情与TXT下载")
+        return SourceHealth(sourceId, available = true, message = "可解析分类、公开列表、详情与TXT下载")
     }
 
     override fun isSafeReadUrl(bookUrl: String): Boolean = safety.isAllowed(bookUrl)
@@ -104,25 +111,103 @@ class QisuwangSource(
         return parseListPage(http.get("$baseUrl$path", safety)).take(30)
     }
 
-    override suspend fun randomBrowse(category: String, finishedOnly: Boolean, sizeBand: SizeBand): List<SearchResult> {
-        val paths = when (category) {
-            "全部" -> listOf("/yanqing/", "/dushi/", "/xuanhuan/", "/kehuan/")
-            "现言甜宠", "青春校园", "古言宫斗", "年代种田", "穿越重生" -> listOf("/yanqing/")
-            "都市职场" -> listOf("/dushi/")
-            "仙侠奇缘" -> listOf("/xuanhuan/")
-            "悬疑推理" -> listOf("/kehuan/")
-            else -> listOf("/yanqing/")
-        }
-        return coroutineScope {
-            paths
-                .map { path -> async { parseListPage(http.get("$baseUrl$path", safety)) } }
-                .awaitAll()
-                .flatten()
-        }
-            .filter { result -> sizeBand.contains(result.summary.sizeKbOrDefault(sizeBand.minKb)) }
-            .shuffled()
-            .take(12)
+    override suspend fun homepageFeatured(): CategoryBrowseResult = safeCategoryBrowse(10_000) {
+        parseHomepagePage(discoveryHttp.get("$baseUrl/", safety))
     }
+
+    override suspend fun categoryBrowse(category: String, page: Int): CategoryBrowseResult {
+        val url = categoryPageUrl(category, page) ?: return CategoryBrowseResult.Unsupported
+        val result = fetchCategoryPage(url, sourcePage(category, page))
+        return if (category == "全部" && result is CategoryBrowseResult.Success) {
+            result.copy(hasMore = allCategoryHasMore(page))
+        } else result
+    }
+
+    fun categoryPageUrl(category: String, page: Int): String? {
+        if (category == "全部") {
+            val safePage = page.coerceAtLeast(1)
+            val path = discoveryAllPaths.getOrNull(safePage - 1) ?: return null
+            return pageUrl(path, 1)
+        }
+        val path = when (category) {
+            "言情" -> "/yanqing/"
+            "现代都市" -> "/dushi/"
+            "玄幻奇幻" -> "/xuanhuan/"
+            "历史军事" -> "/lishi/"
+            "游戏竞技" -> "/wangyou/"
+            // /kehuan/ mixes science fiction and supernatural fiction, so it is not exact.
+            else -> return null
+        }
+        return pageUrl(path, page)
+    }
+
+    fun allCategoryHasMore(page: Int): Boolean = page.coerceAtLeast(1) < discoveryAllPaths.size
+
+    fun discoveryTimeoutConfiguration(): HttpTimeoutConfiguration = discoveryHttp.timeoutConfiguration()
+
+    private fun pageUrl(path: String, page: Int): String {
+        val safePage = page.coerceAtLeast(1)
+        return if (safePage == 1) "$baseUrl$path" else "$baseUrl${path}index_${safePage}.html"
+    }
+
+    fun parseCategoryListPage(html: String, page: Int): CategoryBrowseResult {
+        if (looksLikeDiscoveryVerificationPage(html)) {
+            return CategoryBrowseResult.Failure("分类页返回验证页面")
+        }
+        val listMatch = Regex("<ul[^>]+class=[\"'][^\"']*imgtextlist[^\"']*[\"'][^>]*>([\\s\\S]*?)</ul>", RegexOption.IGNORE_CASE)
+            .find(html) ?: return CategoryBrowseResult.Failure("分类列表结构已变化")
+        val adjacentTail = html.substring(listMatch.range.last + 1)
+        val pagesMatch = Regex("^\\s*<div[^>]+class=[\"'][^\"']*pages[^\"']*[\"'][^>]*>([\\s\\S]*?)</div>", RegexOption.IGNORE_CASE)
+            .find(adjacentTail) ?: return CategoryBrowseResult.Failure("分类分页结构已变化")
+        val listHtml = listMatch.groupValues[1]
+        val rawItems = HtmlTools.allMatches(listHtml, "<li[^>]*>([\\s\\S]*?)</li>")
+        val items = parseListPage("<ul class=\"imgtextlist\">$listHtml</ul>")
+        if (rawItems.isNotEmpty() && items.isEmpty()) {
+            return CategoryBrowseResult.Failure("分类条目结构已变化")
+        }
+        if (rawItems.isEmpty() && HtmlTools.stripTags(listHtml).isNotBlank()) {
+            return CategoryBrowseResult.Failure("分类条目结构已变化")
+        }
+        val nextPage = page.coerceAtLeast(1) + 1
+        return CategoryBrowseResult.Success(
+            items = items,
+            hasMore = Regex("index_${nextPage}\\.html", RegexOption.IGNORE_CASE).containsMatchIn(pagesMatch.value),
+            partialFailure = items.size < rawItems.size
+        )
+    }
+
+    /** Parses only the homepage's verified image-text list, never a challenge page. */
+    fun parseHomepagePage(html: String): CategoryBrowseResult {
+        if (looksLikeDiscoveryVerificationPage(html)) {
+            return CategoryBrowseResult.Failure("首页返回验证页面")
+        }
+        if (isExplicitlyEmptyDiscoveryPage(html)) {
+            return CategoryBrowseResult.Success(emptyList(), hasMore = false)
+        }
+        val listMatch = Regex(
+            "<ul[^>]+class=[\"'][^\"']*imgtextlist[^\"']*[\"'][^>]*>([\\s\\S]*?)</ul>",
+            RegexOption.IGNORE_CASE
+        ).find(html) ?: return CategoryBrowseResult.Failure("首页精选列表结构已变化")
+        val listHtml = listMatch.groupValues[1]
+        val rawItems = HtmlTools.allMatches(listHtml, "<li[^>]*>([\\s\\S]*?)</li>")
+        val items = parseListPage("<ul class=\"imgtextlist\">$listHtml</ul>")
+        if (rawItems.isNotEmpty() && items.isEmpty()) {
+            return CategoryBrowseResult.Failure("首页精选条目结构已变化")
+        }
+        if (rawItems.isEmpty() && HtmlTools.stripTags(listHtml).isNotBlank()) {
+            return CategoryBrowseResult.Failure("首页精选条目结构已变化")
+        }
+        return CategoryBrowseResult.Success(
+            items = items.take(30),
+            hasMore = false,
+            partialFailure = items.size < rawItems.size
+        )
+    }
+
+    private suspend fun fetchCategoryPage(url: String, page: Int): CategoryBrowseResult =
+        safeCategoryBrowse(10_000) { parseCategoryListPage(discoveryHttp.get(url, safety), page) }
+
+    private fun sourcePage(category: String, page: Int): Int = if (category == "全部") 1 else page.coerceAtLeast(1)
 
     fun parseListPage(html: String): List<SearchResult> {
         return HtmlTools.allMatches(html, "<li>\\s*<a[^>]+href=\"([^\"]+)\"[\\s\\S]*?</li>")
@@ -226,13 +311,4 @@ class QisuwangSource(
 
     private fun normalize(value: String): String = value.trim().lowercase().replace(" ", "")
 
-    private fun String.sizeKbOrDefault(defaultKb: Int): Int {
-        val match = Regex("([0-9]+(?:\\.[0-9]+)?)\\s*(KB|MB)", RegexOption.IGNORE_CASE).find(this) ?: return defaultKb
-        val value = match.groupValues[1].toDoubleOrNull() ?: return defaultKb
-        return if (match.groupValues[2].equals("MB", ignoreCase = true)) {
-            (value * 1024).toInt()
-        } else {
-            value.toInt()
-        }
-    }
 }

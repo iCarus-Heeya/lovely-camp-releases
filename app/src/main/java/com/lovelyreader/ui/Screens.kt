@@ -104,6 +104,7 @@ import com.lovelyreader.domain.SearchResult
 import com.lovelyreader.domain.SourceCapability
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.theme.bookshelfHeaderGradient
+import com.lovelyreader.update.UpdateHistoryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -159,18 +160,18 @@ fun BookshelfScreen(
             )
         },
         bottomBar = bottomBar,
-        containerColor = appColors().cream
+        containerColor = Color.Transparent
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(appColors().bookshelfHeaderGradient())
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+        InkWashBackground(Modifier.padding(padding).fillMaxSize()) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Transparent)
+                    .padding(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -203,7 +204,7 @@ fun BookshelfScreen(
                             shape = MaterialTheme.shapes.large
                         ) {
                             Text(
-                                "亲亲老公帮我找书",
+                                "找书",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
@@ -240,7 +241,8 @@ fun BookshelfScreen(
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    RealBookCover(
+                                    BookCoverImage(
+                                        url = book.coverUrl,
                                         title = book.title,
                                         author = book.author,
                                         modifier = Modifier
@@ -269,8 +271,23 @@ fun BookshelfScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = appColors().cocoa.copy(alpha = 0.7f)
                                         )
+                                        if (status.state == DownloadState.Downloading) {
+                                            Text(
+                                                downloadStatusDetail(status),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = appColors().roseBeige,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         LinearProgressIndicator(
-                                            progress = { progressFor(book.id) / 100f },
+                                            progress = {
+                                                if (status.state == DownloadState.Downloading) {
+                                                    status.percent / 100f
+                                                } else {
+                                                    progressFor(book.id) / 100f
+                                                }
+                                            },
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(5.dp)
@@ -324,6 +341,7 @@ fun BookshelfScreen(
                     onDelete = { onDeleteBook(book) }
                 )
             }
+            }
         }
     }
 }
@@ -335,20 +353,24 @@ fun SearchScreen(
     rankingResults: List<SearchResult>,
     randomResults: List<SearchResult>,
     categories: List<String>,
+    romanceCategories: List<String>,
     message: String,
     isSearching: Boolean,
     isLoadingRanking: Boolean,
     isLoadingRandom: Boolean,
+    isRandomExhausted: Boolean,
     rankingMessage: String,
     randomMessage: String,
     searchHistory: List<String>,
     onBack: () -> Unit,
     onSearch: (String) -> Unit,
-    onRankingPeriodChanged: (RankingPeriod) -> Unit,
+    onRankingChanged: (RankingPeriod, String) -> Unit,
     onRandomBrowse: (String) -> Unit,
+    onRestartRandomBrowse: (String) -> Unit,
     onOpenResult: (SearchResult) -> Unit,
     onAddResultToShelf: (SearchResult) -> Unit,
     onSearchModeChanged: (String) -> Unit,
+    onCancelDiscoveryLoads: () -> Unit,
     bottomBar: @Composable () -> Unit = {}
 ) {
     var query by remember { mutableStateOf("") }
@@ -357,6 +379,9 @@ fun SearchScreen(
     var searchFilter by remember { mutableStateOf(SearchFilter.All) }
     val displayCategories = remember(categories) { listOf("全部") + categories }
     var category by remember { mutableStateOf("全部") }
+    var randomPrimaryCategory by remember { mutableStateOf("全部") }
+    var rankingCategory by remember { mutableStateOf("全部") }
+    var rankingPrimaryCategory by remember { mutableStateOf("全部") }
 
     val displayResults = remember(results, query, searchFilter) {
         if (query.isBlank() && searchFilter == SearchFilter.All) {
@@ -385,24 +410,25 @@ fun SearchScreen(
             )
         },
         bottomBar = bottomBar,
-        containerColor = appColors().cream
+        containerColor = Color.Transparent
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        InkWashBackground(Modifier.padding(padding).fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 SegmentedTextButtons(
                     options = listOf(SearchMode.Search, SearchMode.Rank, SearchMode.Random),
                     selected = mode,
                     label = { it.label },
                     onSelected = {
+                        onCancelDiscoveryLoads()
                         mode = it
                         if (it == SearchMode.Rank) {
-                            onRankingPeriodChanged(period)
+                            onRankingChanged(period, rankingCategory)
                         }
                         if (it == SearchMode.Random) {
                             onSearchModeChanged(category)
@@ -477,24 +503,55 @@ fun SearchScreen(
 
                 SearchMode.Rank -> {
                     item {
-                        SegmentedTextButtons(
-                            options = RankingPeriod.entries,
-                            selected = period,
-                            label = { it.label },
-                            onSelected = {
-                                period = it
-                                onRankingPeriodChanged(it)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(displayCategories) { item ->
+                                FilterChipText(
+                                    text = item,
+                                    selected = item == rankingPrimaryCategory,
+                                    enabled = !isLoadingRanking,
+                                    onClick = {
+                                        rankingPrimaryCategory = item
+                                        rankingCategory = item
+                                        onRankingChanged(period, rankingCategory)
+                                    }
+                                )
                             }
+                        }
+                        if (rankingPrimaryCategory == "言情") {
+                            Spacer(Modifier.height(8.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listOf("全部言情") + romanceCategories) { item ->
+                                    val actual = if (item == "全部言情") "言情" else item
+                                    FilterChipText(
+                                        text = item,
+                                        selected = actual == rankingCategory,
+                                        enabled = !isLoadingRanking,
+                                        onClick = {
+                                            rankingCategory = actual
+                                            onRankingChanged(period, actual)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (rankingCategory == "全部") "来源首页精选" else "分类精选 · $rankingCategory",
+                            color = appColors().roseBeige,
+                            fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            if (isLoadingRanking) "正在从已适配来源刷新真实排行榜，请稍等..." else rankingMessage,
+                            if (isLoadingRanking) {
+                                if (rankingCategory == "全部") "正在从已适配来源首页刷新精选，请稍等..."
+                                else "正在读取「$rankingCategory」真实分类页，请稍等..."
+                            } else rankingMessage,
                             color = appColors().cocoa.copy(alpha = 0.7f)
                         )
                     }
                     if (isLoadingRanking) {
-                        item { LoadingPanel("老公正在认真翻排行榜") }
+                        item { LoadingPanel("老公正在认真挑精选") }
                     } else if (rankingResults.isEmpty()) {
-                        item { SoftPanel { Text(rankingMessage.ifBlank { "暂时没有拿到真实排行榜，请稍后再试。" }) } }
+                        item { SoftPanel { Text(rankingMessage.ifBlank { "暂时没有拿到精选内容，请稍后再试。" }) } }
                     } else {
                         items(
                             items = rankingResults,
@@ -515,23 +572,49 @@ fun SearchScreen(
                             items(displayCategories) { item ->
                                 FilterChipText(
                                     text = item,
-                                    selected = item == category,
+                                    selected = item == randomPrimaryCategory,
+                                    enabled = !isLoadingRandom,
                                     onClick = {
+                                        randomPrimaryCategory = item
                                         category = item
                                         onRandomBrowse(category)
                                     }
                                 )
                             }
                         }
+                        if (randomPrimaryCategory == "言情") {
+                            Spacer(Modifier.height(8.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listOf("全部言情") + romanceCategories) { item ->
+                                    val actual = if (item == "全部言情") "言情" else item
+                                    FilterChipText(
+                                        text = item,
+                                        selected = actual == category,
+                                        enabled = !isLoadingRandom,
+                                        onClick = {
+                                            category = actual
+                                            onRandomBrowse(actual)
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(10.dp))
                         Button(
-                            onClick = { onRandomBrowse(category) },
+                            onClick = {
+                                if (isRandomExhausted) onRestartRandomBrowse(category) else onRandomBrowse(category)
+                            },
+                            enabled = !isLoadingRandom,
                             colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige),
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.large
                         ) {
                             Text(
-                                if (isLoadingRandom) "正在换一批" else "换一批",
+                                when {
+                                    isLoadingRandom -> "正在换一批"
+                                    isRandomExhausted -> "重新开始"
+                                    else -> "换一批"
+                                },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -558,6 +641,7 @@ fun SearchScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -607,26 +691,40 @@ fun BookDetailScreen(
         bottomBar = bottomBar,
         containerColor = appColors().cream
     ) { padding ->
-        LazyColumn(
+        InkWashBackground(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             item {
                 SoftPanel {
-                Text(detail?.book?.title ?: result.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                Text((detail?.book?.author ?: result.author).ifBlank { "未知作者" }, color = appColors().roseBeige)
-                Spacer(Modifier.height(12.dp))
-                Text((detail?.book?.summary ?: result.summary).ifBlank { "这个来源没有给简介，但可以先收进书架。" })
-                Spacer(Modifier.height(12.dp))
-                Text(detail?.offlineLabel ?: capabilityLabel(result), color = appColors().sage, fontWeight = FontWeight.Medium)
-                detail?.latestChapter?.let {
-                    Text("最新：$it", color = appColors().cocoa.copy(alpha = 0.7f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+                        BookCoverImage(
+                            url = detail?.book?.coverUrl ?: result.coverUrl,
+                            title = detail?.book?.title ?: result.title,
+                            author = detail?.book?.author ?: result.author,
+                            modifier = Modifier.width(104.dp).height(148.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(detail?.book?.title ?: result.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                            Text((detail?.book?.author ?: result.author).ifBlank { "未知作者" }, color = appColors().roseBeige)
+                            detail?.category?.takeIf(String::isNotBlank)?.let { Text(it, color = appColors().cocoa.copy(alpha = .68f), style = MaterialTheme.typography.bodySmall) }
+                            detail?.wordCountOrSize?.takeIf(String::isNotBlank)?.let { Text(it, color = appColors().cocoa.copy(alpha = .68f), style = MaterialTheme.typography.bodySmall) }
+                            detail?.latestChapter?.takeIf(String::isNotBlank)?.let { Text("最新：$it", color = appColors().cocoa.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text((detail?.book?.summary ?: result.summary).ifBlank { "这个来源没有给简介，但可以先收进书架。" })
+                    Spacer(Modifier.height(12.dp))
+                    Text(detail?.offlineLabel ?: capabilityLabel(result), color = appColors().sage, fontWeight = FontWeight.Medium)
                 }
             }
-                }
             item {
             Button(
                 onClick = onAddToShelf,
@@ -652,6 +750,7 @@ fun BookDetailScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
             }
             }
         }
@@ -744,12 +843,17 @@ fun ReaderScreen(
             val haptic = LocalHapticFeedback.current
             // 未加载时正文区域保持空白，禁止加载/失败文案进入正文分页
             val rawText = chapterContent?.content ?: ""
-            var pages by remember(rawText, fontSize, pageWidthPx, pageHeightPx) {
+            // Keep the currently rendered pages while the new font layout is
+            // measured. Clearing this state on every font click made the
+            // reader flash blank and recreated the pager from its old start
+            // index, which looked like the whole book had reloaded.
+            var pages by remember(rawText, pageWidthPx, pageHeightPx) {
                 mutableStateOf(listOf<String>())
             }
-            var chapters by remember(rawText, fontSize, pageWidthPx, pageHeightPx) {
+            var chapters by remember(rawText, pageWidthPx, pageHeightPx) {
                 mutableStateOf(listOf<ReaderChapter>())
             }
+            var pageLayoutGeneration by remember(book.id) { mutableStateOf(0) }
             LaunchedEffect(rawText, fontSize, pageWidthPx, pageHeightPx) {
                 if (rawText.isBlank() || pageWidthPx <= 0 || pageHeightPx <= 0) return@LaunchedEffect
                 val cacheKey = PageCacheKey(book.id, fontSize, pageWidthPx, pageHeightPx)
@@ -757,6 +861,7 @@ fun ReaderScreen(
                 if (cached != null && cached.pages.isNotEmpty() && rawText.isNotBlank()) {
                     pages = cached.pages
                     chapters = cached.chapters
+                    pageLayoutGeneration++
                     return@LaunchedEffect
                 }
                 val result = withContext(Dispatchers.Default) {
@@ -767,9 +872,10 @@ fun ReaderScreen(
                 if (result.pages.isNotEmpty()) {
                     if (readerPageCache.size >= 3) {
                         readerPageCache.remove(readerPageCache.keys.first())
-                    }
-                    readerPageCache[cacheKey] = CachedReaderPages(result.pages, result.chapters)
                 }
+                readerPageCache[cacheKey] = CachedReaderPages(result.pages, result.chapters)
+                pageLayoutGeneration++
+            }
             }
             val pagerState = if (pages.isNotEmpty()) {
                 rememberPagerState(
@@ -778,6 +884,20 @@ fun ReaderScreen(
                 )
             } else {
                 null
+            }
+
+            // Pagination necessarily changes page boundaries when the font
+            // changes. Capture the current logical progress before starting
+            // that work, then map it to the new page count when the result is
+            // ready. This keeps the reader at the same part of the book.
+            var pendingFontProgress by remember(book.id) { mutableStateOf<Float?>(null) }
+
+            fun requestFontSize(nextSize: Int) {
+                val next = nextSize.coerceIn(14, 24)
+                if (next != fontSize) {
+                    pendingFontProgress = currentProgress
+                    fontSize = next
+                }
             }
 
             fun saveCurrentPosition() {
@@ -821,8 +941,21 @@ fun ReaderScreen(
                         }
                 }
 
-                LaunchedEffect(pages, book.id) {
-                    if (!hasRestoredPosition && chapterContent != null) {
+                LaunchedEffect(pageLayoutGeneration, book.id) {
+                    if (pages.isEmpty()) return@LaunchedEffect
+                    val fontProgress = pendingFontProgress
+                    if (fontProgress != null) {
+                        val target = readerPageForProgress(fontProgress, pages.size)
+                        pendingFontProgress = null
+                        if (pagerState.currentPage != target) {
+                            pagerState.scrollToPage(target)
+                        }
+                        currentProgress = if (pages.size <= 1) {
+                            0f
+                        } else {
+                            (target.toFloat() / (pages.size - 1)).coerceIn(0f, 1f)
+                        }
+                    } else if (!hasRestoredPosition && chapterContent != null) {
                         val target = initialScrollIndex.coerceIn(0, pages.size - 1)
                         if (target > 0) {
                             pagerState.scrollToPage(target)
@@ -976,7 +1109,7 @@ fun ReaderScreen(
                     fontSize = fontSize,
                     currentProgress = currentProgress,
                     onNightModeToggle = { nightMode = !nightMode },
-                    onFontSizeChange = { fontSize = it.coerceIn(14, 24) },
+                    onFontSizeChange = ::requestFontSize,
                     onProgressClick = { showProgressSlider = !showProgressSlider },
                     onCatalogClick = { showCatalog = !showCatalog }
                 )
@@ -1250,19 +1383,15 @@ fun SettingsScreen(
     notes: List<String>,
     onBack: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
-    syncConfigured: Boolean = false,
-    syncMessage: String = "",
-    defaultToken: String = "",
-    defaultGistId: String = "",
-    onSaveSyncCredentials: (String, String) -> Unit = { _, _ -> },
-    onClearSyncMessage: () -> Unit = {},
-    onClearSyncAuth: () -> Unit = {},
     currentTheme: AppTheme = AppTheme.Warm,
     onThemeChanged: (AppTheme) -> Unit = {},
     updateMessage: String = "",
     updateAvailable: com.lovelyreader.update.UpdateManifest? = null,
     onCheckUpdate: () -> Unit = {},
-    onInstallUpdate: (com.lovelyreader.update.UpdateManifest) -> Unit = {}
+    onInstallUpdate: (com.lovelyreader.update.UpdateManifest) -> Unit = {},
+    updateHistory: List<UpdateHistoryEntry> = emptyList(),
+    updateHistoryMessage: String = "",
+    onLoadUpdateHistory: () -> Unit = {}
 ) {
     val noteOfTheMoment = remember { WarmPhrases.notes.random() }
     Scaffold(
@@ -1278,15 +1407,15 @@ fun SettingsScreen(
             )
         },
         bottomBar = bottomBar,
-        containerColor = appColors().cream
+        containerColor = Color.Transparent
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        InkWashBackground(Modifier.padding(padding).fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 SoftPanel { Text(noteOfTheMoment, fontSize = 18.sp) }
             }
@@ -1345,6 +1474,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige)
                     ) { Text("检查更新") }
+                    LaunchedEffect(Unit) { onLoadUpdateHistory() }
                     if (updateMessage.isNotBlank()) Text(updateMessage, modifier = Modifier.padding(top = 8.dp), color = appColors().softGray)
                     updateAvailable?.let { manifest ->
                         Text(manifest.notes.ifBlank { "包含体验改进" }, modifier = Modifier.padding(top = 8.dp))
@@ -1354,6 +1484,19 @@ fun SettingsScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige)
                         ) { Text("下载并安装 ${manifest.versionName}") }
                     }
+                    if (updateHistoryMessage.isNotBlank()) {
+                        Text(updateHistoryMessage, modifier = Modifier.padding(top = 8.dp), color = appColors().softGray)
+                    }
+                    if (updateHistory.isNotEmpty()) {
+                        Text("版本记录", modifier = Modifier.padding(top = 12.dp), fontWeight = FontWeight.SemiBold)
+                        updateHistory.forEach { entry ->
+                            Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("v${entry.versionName}", fontWeight = FontWeight.Medium)
+                                entry.publishedAt?.takeIf(String::isNotBlank)?.let { Text(formatUpdateDate(it), style = MaterialTheme.typography.bodySmall, color = appColors().softGray) }
+                                Text(entry.notes, style = MaterialTheme.typography.bodySmall, color = appColors().cocoa.copy(alpha = .72f))
+                            }
+                        }
+                    }
                 }
             }
             item {
@@ -1362,20 +1505,17 @@ fun SettingsScreen(
                     Text("6 个来源均已预置。已验证闭环：爱下电子书章节阅读、奇书网TXT下载阅读、勤看小说多格式下载阅读、知轩藏书TXT下载阅读；久久小说可搜索但详情下载待验证；言情小说站被 Cloudflare 拦截，暂不计入已支持。", color = appColors().cocoa.copy(alpha = 0.7f))
                 }
             }
-            item {
-                SyncSettingsPanel(
-                    configured = syncConfigured,
-                    message = syncMessage,
-                    defaultToken = defaultToken,
-                    defaultGistId = defaultGistId,
-                    onSaveCredentials = onSaveSyncCredentials,
-                    onClearMessage = onClearSyncMessage,
-                    onClearAuth = onClearSyncAuth
-                )
             }
         }
     }
 }
+
+fun ordinarySettingsSectionLabels(): List<String> = listOf("阅读外观", "应用更新", "来源管理")
+
+private fun formatUpdateDate(value: String): String = value
+    .replace('T', ' ')
+    .replace(Regex("Z$"), "")
+    .take(16)
 
 @Composable
 private fun ThemeChip(
@@ -1494,7 +1634,7 @@ private fun BookCard(
 ) {
     val statusText = when (downloadStatus.state) {
         DownloadState.NotStarted -> "待下载"
-        DownloadState.Downloading -> downloadStatus.message.ifBlank { "${downloadStatus.percent}%" }
+        DownloadState.Downloading -> downloadStatus.message.ifBlank { "下载 ${downloadStatus.percent}%" }
         DownloadState.Ready -> "可阅读"
         DownloadState.Failed -> downloadStatus.message.ifBlank { "点书重试" }
     }
@@ -1522,7 +1662,8 @@ private fun BookCard(
                 .fillMaxSize()
                 .clickable { onClick() }
         ) {
-            RealBookCover(
+            BookCoverImage(
+                url = book.coverUrl,
                 title = book.title,
                 author = book.author,
                 modifier = Modifier.fillMaxSize()
@@ -1587,6 +1728,25 @@ private fun BookCard(
     }
 }
 
+private fun downloadStatusDetail(status: BookDownloadStatus): String {
+    val progress = "下载 ${status.percent}%"
+    val transfer = if (status.totalBytes > 0L) {
+        "${formatDownloadBytes(status.downloadedBytes)}/${formatDownloadBytes(status.totalBytes)}"
+    } else {
+        status.downloadedChapters.takeIf { it > 0 && status.totalChapters > 0 }
+            ?.let { "$it/${status.totalChapters} 章" }
+    }
+    val speed = status.speedBytesPerSecond.takeIf { it > 0L }?.let { "${formatDownloadBytes(it)}/秒" }
+    val eta = status.etaSeconds?.takeIf { it >= 0L }?.let { "剩余约 ${it} 秒" }
+    return listOf(progress, transfer, speed, eta).filterNotNull().joinToString(" · ")
+}
+
+private fun formatDownloadBytes(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    if (bytes < 1024L * 1024L) return "${bytes / 1024L} KB"
+    return "${bytes / (1024L * 1024L)} MB"
+}
+
 @Composable
 private fun SearchResultCard(result: SearchResult, onClick: () -> Unit, onAddToShelf: () -> Unit) {
     SoftPanel(modifier = Modifier.clickable(onClick = onClick)) {
@@ -1595,12 +1755,14 @@ private fun SearchResultCard(result: SearchResult, onClick: () -> Unit, onAddToS
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            SmallBookCover(
+            BookCoverImage(
+                url = result.coverUrl,
                 title = result.title,
                 author = result.author,
                 modifier = Modifier
                     .width(52.dp)
-                    .height(76.dp)
+                    .height(76.dp),
+                showAuthor = false
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -1677,7 +1839,7 @@ private fun SearchResultCard(result: SearchResult, onClick: () -> Unit, onAddToS
 
 private enum class SearchMode(val label: String) {
     Search("搜索"),
-    Rank("排行榜"),
+    Rank("首页精选"),
     Random("随便看看")
 }
 
@@ -2044,4 +2206,16 @@ internal fun readerProgress(
     } else {
         (safeIndex.toFloat() / denominator).coerceIn(0f, 1f)
     }
+}
+
+/**
+ * Maps a saved reader progress value to the closest page after repagination.
+ * Font changes alter page count, but not the user's logical position in the
+ * chapter, so this helper keeps the restore rule deterministic and testable.
+ */
+internal fun readerPageForProgress(progress: Float, pagesSize: Int): Int {
+    if (pagesSize <= 1) return 0
+    return (progress.coerceIn(0f, 1f) * (pagesSize - 1))
+        .roundToInt()
+        .coerceIn(0, pagesSize - 1)
 }

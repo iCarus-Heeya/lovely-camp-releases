@@ -45,7 +45,13 @@ enum class MainTab(val label: String, val icon: androidx.compose.ui.graphics.vec
 data class BookDownloadStatus(
     val state: DownloadState = DownloadState.NotStarted,
     val percent: Int = 0,
-    val message: String = ""
+    val message: String = "",
+    val downloadedChapters: Int = 0,
+    val totalChapters: Int = 0,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val speedBytesPerSecond: Long = 0L,
+    val etaSeconds: Long? = null
 )
 
 enum class DownloadState {

@@ -84,6 +84,7 @@ import com.lovelyreader.video.VideoRequestDiagnostic
 import com.lovelyreader.video.videoDebugVersionLabel
 import com.lovelyreader.video.castMediaTarget
 import com.lovelyreader.ui.SoftPanel
+import com.lovelyreader.ui.InkWashBackground
 import com.lovelyreader.ui.theme.appColors
 
 @Composable
@@ -243,9 +244,10 @@ private fun DramaHomeStyledScreen(
 ) {
     val colors = appColors()
     var editableQuery by remember(query) { mutableStateOf(query) }
+    InkWashBackground(modifier.fillMaxSize()) {
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize().background(colors.cream),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -301,6 +303,7 @@ private fun DramaHomeStyledScreen(
             SoftPanel { Text("还没有结果", style = MaterialTheme.typography.titleMedium, color = colors.cocoa); Text("输入剧名试试看，喜欢的剧会在这里出现。", color = colors.softGray, style = MaterialTheme.typography.bodySmall) }
         }
         items(search.results, key = { it.id }) { title -> DramaTitleCard(title, onClick = { onOpenTitle(title) }) }
+    }
     }
 }
 
@@ -436,9 +439,10 @@ private fun DramaDetailStyledScreen(
     detailTitle: VideoTitle?, detailMessage: String, isLoading: Boolean, sources: List<VideoSource>, selectedSource: VideoSource?, episodes: List<VideoEpisode>, selectedEpisodeIds: Set<String>, onBack: () -> Unit, onSelectSource: (VideoSource) -> Unit, onToggleEpisode: (String) -> Unit, onPlayEpisode: (VideoEpisode) -> Unit, onEnqueueSelected: () -> Unit, modifier: Modifier = Modifier
 ) {
     val colors = appColors()
+    InkWashBackground(modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(compactEpisodeGridColumns()),
-        modifier = modifier.fillMaxSize().background(colors.cream),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -448,10 +452,16 @@ private fun DramaDetailStyledScreen(
         }
         item {
             SoftPanel {
-                Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
-                Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
+                    DramaPoster(url = detailTitle?.posterUrl, title = detailTitle?.name ?: "剧集详情", modifier = Modifier.size(76.dp, 108.dp).clip(MaterialTheme.shapes.small))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
+                        Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                    }
+                }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { DramaMetadataBlock(detailTitle) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("选择播放源", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
@@ -478,6 +488,7 @@ private fun DramaDetailStyledScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -489,9 +500,10 @@ private fun DramaDetailCompactScreen(
     onEnqueueSelected: () -> Unit, modifier: Modifier = Modifier
 ) {
     val colors = appColors()
+    InkWashBackground(modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(compactEpisodeGridColumns()),
-        modifier = modifier.fillMaxSize().background(colors.cream),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -501,10 +513,16 @@ private fun DramaDetailCompactScreen(
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             SoftPanel {
-                Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
-                Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.Top) {
+                    DramaPoster(url = detailTitle?.posterUrl, title = detailTitle?.name ?: "剧集详情", modifier = Modifier.size(76.dp, 108.dp).clip(MaterialTheme.shapes.small))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
+                        Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                    }
+                }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { DramaMetadataBlock(detailTitle) }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("选择播放源", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
@@ -537,6 +555,25 @@ private fun DramaDetailCompactScreen(
                 }
             }
         }
+    }
+    }
+}
+
+@Composable
+private fun DramaMetadataBlock(title: VideoTitle?) {
+    val colors = appColors()
+    val hasMetadata = title?.let {
+        listOf(it.summary, it.releaseInfo, it.castInfo, it.categoryInfo, it.updateInfo).any { value -> !value.isNullOrBlank() }
+    } == true
+    if (!hasMetadata) return
+    SoftPanel {
+        title?.summary?.takeIf(String::isNotBlank)?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.cocoa, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        }
+        title?.releaseInfo?.takeIf(String::isNotBlank)?.let { Text("上映：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray) }
+        title?.categoryInfo?.takeIf(String::isNotBlank)?.let { Text("分类：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray) }
+        title?.castInfo?.takeIf(String::isNotBlank)?.let { Text("主演：$it", style = MaterialTheme.typography.bodySmall, color = colors.softGray, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        title?.updateInfo?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.roseBeige) }
     }
 }
 
@@ -1044,7 +1081,8 @@ private fun DownloadQueueStyledScreen(
     tasks: List<VideoDownloadTask>, onBack: () -> Unit, onRefresh: () -> Unit, modifier: Modifier = Modifier
 ) {
     val colors = appColors()
-    LazyColumn(modifier = modifier.fillMaxSize().background(colors.cream), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    InkWashBackground(modifier.fillMaxSize()) {
+    LazyColumn(modifier = Modifier.fillMaxSize().background(Color.Transparent), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor)) { Text("返回找剧") }
@@ -1068,6 +1106,7 @@ private fun DownloadQueueStyledScreen(
                 }
             }
         }
+    }
     }
 }
 

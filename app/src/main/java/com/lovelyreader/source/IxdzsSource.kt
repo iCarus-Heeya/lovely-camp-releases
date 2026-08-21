@@ -86,9 +86,15 @@ class IxdzsSource(
             .filter { safety.isAllowed(it.url) }
     }
 
-    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? {
+    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? =
+        getChapterContentWithProgress(chapterUrl) { _, _ -> }
+
+    override suspend fun getChapterContentWithProgress(
+        chapterUrl: String,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
+    ): ChapterContent? {
         val allowedUrl = safety.requireAllowed(chapterUrl)
-        return parseChapterContent(allowedUrl, http.get(allowedUrl, safety))
+        return parseChapterContent(allowedUrl, http.getWithProgress(allowedUrl, safety, onProgress = onProgress))
     }
 
     override suspend fun getDownloadOptions(bookUrl: String): List<DownloadOption> = emptyList()

@@ -8,6 +8,9 @@ import com.lovelyreader.domain.ReadingProgress
 import com.lovelyreader.domain.ChapterContent
 import com.lovelyreader.domain.PartialChapter
 import com.lovelyreader.source.SourceContentGuard
+import com.lovelyreader.source.NormalizedBookIdentity
+import com.lovelyreader.source.normalizedAuthorKey
+import com.lovelyreader.source.normalizedTitleKey
 
 const val defaultReaderFontSize = 20
 
@@ -17,6 +20,7 @@ class LibraryRepository {
     private val bookmarks = mutableListOf<Bookmark>()
     private val notes = mutableListOf<HusbandNote>()
     private val seenTitles = linkedSetOf<String>()
+    private val seenBooks = linkedSetOf<NormalizedBookIdentity>()
     private val offlineChapters = linkedMapOf<String, OfflineChapter>()
     private val partialChapters = linkedMapOf<String, MutableList<OfflineChapter>>()
     private val blockedLegacyBookIds = setOf("demo-glory")
@@ -30,7 +34,7 @@ class LibraryRepository {
 
     fun addToShelf(book: Book) {
         books[book.id] = book
-        markSeenTitle(book.title)
+        markSeenBook(book.title, book.author)
     }
 
     fun bookshelf(): List<Book> = books.values.toList()
@@ -134,10 +138,20 @@ class LibraryRepository {
     fun husbandNotes(): List<HusbandNote> = notes.toList()
 
     fun markSeenTitle(title: String) {
+        markSeenBook(title, "")
+    }
+
+    fun markSeenBook(title: String, author: String) {
         title.trim().takeIf { it.isNotBlank() }?.let(seenTitles::add)
+        val normalizedTitle = normalizedTitleKey(title)
+        if (normalizedTitle.isNotBlank()) {
+            seenBooks += NormalizedBookIdentity(normalizedTitle, normalizedAuthorKey(author))
+        }
     }
 
     fun seenTitles(): Set<String> = seenTitles.toSet()
+
+    fun seenBookIdentities(): List<NormalizedBookIdentity> = seenBooks.toList()
 
     fun snapshot(): LibrarySnapshot {
         return LibrarySnapshot(
@@ -146,6 +160,7 @@ class LibraryRepository {
             bookmarks = bookmarks.toList(),
             notes = notes.toList(),
             seenTitles = seenTitles.toList(),
+            seenBookIdentities = seenBooks.map { "${it.title}\u001F${it.author}" },
             offlineChapters = offlineChapters.values.toList(),
             partialChapters = partialChapters.values.flatten(),
             readerFontSize = readerFontSize,
@@ -160,6 +175,7 @@ class LibraryRepository {
         bookmarks.clear()
         notes.clear()
         seenTitles.clear()
+        seenBooks.clear()
         offlineChapters.clear()
         partialChapters.clear()
         readerFontSize = snapshot.readerFontSize.coerceIn(14, 24)
@@ -174,6 +190,15 @@ class LibraryRepository {
         bookmarks += snapshot.bookmarks.filter { it.bookId in restoredBookIds }
         notes += snapshot.notes
         seenTitles += snapshot.seenTitles.filterNot { it == "你是我的荣耀" }
+        seenBooks += snapshot.seenBookIdentities.mapNotNull { encoded ->
+            val parts = encoded.split('\u001F', limit = 2)
+            parts.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
+                NormalizedBookIdentity(it, parts.getOrElse(1) { "" })
+            }
+        }
+        if (seenBooks.isEmpty()) {
+            seenBooks += seenTitles.map { NormalizedBookIdentity(normalizedTitleKey(it), "") }
+        }
         snapshot.offlineChapters
             .filter { it.bookId in restoredBookIds }
             .filter { SourceContentGuard.isReadableNovelText(it.content) }
@@ -201,6 +226,7 @@ data class LibrarySnapshot(
     val bookmarks: List<Bookmark>,
     val notes: List<HusbandNote>,
     val seenTitles: List<String> = emptyList(),
+    val seenBookIdentities: List<String> = emptyList(),
     val offlineChapters: List<OfflineChapter> = emptyList(),
     val partialChapters: List<OfflineChapter> = emptyList(),
     val readerFontSize: Int = defaultReaderFontSize,

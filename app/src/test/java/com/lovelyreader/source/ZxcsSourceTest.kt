@@ -10,6 +10,8 @@ import org.junit.Test
 class ZxcsSourceTest {
     private val source = ZxcsSource()
 
+    private fun parseHomepage(html: String): CategoryBrowseResult = source.parseHomepagePage(html)
+
     @Test
     fun parsesRankTilesAsDownloadCapableResults() {
         val html = """
@@ -59,5 +61,60 @@ class ZxcsSourceTest {
         assertEquals("https://zxcs.zip/rank/topdownload", source.rankingUrl(RankingPeriod.MONTH))
         assertEquals("https://zxcs.zip/rank/postdate", source.rankingUrl(RankingPeriod.YEAR))
         assertEquals("https://zxcs.zip/rank/topdownload", source.rankingUrl(RankingPeriod.TOTAL))
+    }
+
+    @Test
+    fun discoveryClientUsesRealShortSocketTimeouts() {
+        val timeouts = source.discoveryTimeoutConfiguration()
+        assertTrue(timeouts.connectMillis <= 6_000)
+        assertTrue(timeouts.readMillis <= 8_000)
+    }
+
+    @Test
+    fun homepageParserRejectsVerificationPageInsteadOfReturningEmptySuccess() {
+        val result = parseHomepage("<html><form id='challenge-form'>安全验证</form></html>")
+
+        assertTrue(result is CategoryBrowseResult.Failure)
+    }
+
+    @Test
+    fun homepageParserRejectsMissingTileContainerInsteadOfReturningEmptySuccess() {
+        val result = parseHomepage("<main><a href='/book/1.html'>《不是首页精选》</a></main>")
+
+        assertTrue(result is CategoryBrowseResult.Failure)
+    }
+
+    @Test
+    fun homepageParserRejectsChangedTileStructure() {
+        val result = parseHomepage(
+            "<mio-tile><a href='/book/1.html'><span class='link'>结构已变化</span></a></mio-tile>"
+        )
+
+        assertTrue(result is CategoryBrowseResult.Failure)
+    }
+
+    @Test
+    fun homepageParserAcceptsAnExplicitlyEmptyRealList() {
+        val result = parseHomepage("<main class='book-list'>暂无小说</main>")
+
+        assertTrue(result is CategoryBrowseResult.Success)
+        result as CategoryBrowseResult.Success
+        assertTrue(result.items.isEmpty())
+    }
+
+    @Test
+    fun homepageParserReturnsItemsFromTheVerifiedTiles() {
+        val result = parseHomepage(
+            """
+            <mio-tile><a href="/book/7.html">
+              <span class="link">《首页书》作者：首页作者</span>
+              <p class="tile-description">首页简介</p>
+            </a></mio-tile>
+            """.trimIndent()
+        )
+
+        assertTrue(result is CategoryBrowseResult.Success)
+        result as CategoryBrowseResult.Success
+        assertEquals(listOf("首页书"), result.items.map { it.title })
     }
 }

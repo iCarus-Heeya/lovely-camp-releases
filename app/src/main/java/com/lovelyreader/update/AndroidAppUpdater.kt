@@ -15,6 +15,7 @@ import java.security.MessageDigest
 
 object GitHubReleaseConfiguration {
     const val LATEST_RELEASE_URL = "https://api.github.com/repos/iCarus-Heeya/lovely-camp-releases/releases/latest"
+    const val RELEASE_HISTORY_URL = "https://api.github.com/repos/iCarus-Heeya/lovely-camp-releases/releases"
 }
 
 sealed interface UpdateCheckResult {
@@ -58,6 +59,13 @@ class AndroidAppUpdater(private val context: Context) {
                 is UpdateAvailability.Available -> UpdateCheckResult.Available(parseGitHubReleaseManifest(raw))
             }
         }.getOrElse { UpdateCheckResult.Failed("暂时无法检查更新，请稍后重试") }
+    }
+
+    suspend fun history(limit: Int = 20): Result<List<UpdateHistoryEntry>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val address = "${GitHubReleaseConfiguration.RELEASE_HISTORY_URL}?per_page=${limit.coerceIn(1, 50)}"
+            parseGitHubReleaseHistory(getText(address))
+        }
     }
 
     suspend fun downloadAndPrepare(manifest: UpdateManifest): Result<File> = withContext(Dispatchers.IO) {

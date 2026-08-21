@@ -41,8 +41,9 @@ import com.lovelyreader.domain.Book
 import com.lovelyreader.sync.ReadingLogSync
 import com.lovelyreader.domain.BookDetail
 import com.lovelyreader.domain.SearchResult
-import com.lovelyreader.source.AggregatedNovelCatalog
+import com.lovelyreader.source.DiscoveryCatalog
 import com.lovelyreader.ui.theme.LovelyReaderTheme
+import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.video.DramaDownloadEnqueuer
 import com.lovelyreader.ui.video.DramaRootResolver
 import com.lovelyreader.ui.video.DramaScreen
@@ -59,6 +60,7 @@ import com.lovelyreader.video.VideoDownloadCoordinator
 import com.lovelyreader.video.VideoLibraryRepository
 import com.lovelyreader.video.VideoSiteResolver
 import com.lovelyreader.update.AndroidAppUpdater
+import com.lovelyreader.update.UpdateHistoryEntry
 import com.lovelyreader.update.UpdateCheckResult
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.Dispatchers
@@ -87,8 +89,9 @@ fun LovelyReaderApp(
     val repository = LibraryRepository()
     val persistence = AndroidLibraryPersistence(context.applicationContext)
     val sync = ReadingLogSync(context.applicationContext)
+    val bookDownloadScheduler = remember(appContext) { AndroidBookDownloadScheduler(appContext) }
     val viewModel: LibraryViewModel = viewModel {
-        LibraryViewModel(repository, persistence, sync)
+        LibraryViewModel(repository, persistence, sync, bookDownloadScheduler)
     }
     val videoScope = rememberCoroutineScope()
     val videoPageFetcher = remember(appContext) {
@@ -106,6 +109,8 @@ fun LovelyReaderApp(
     val appUpdater = remember(appContext) { AndroidAppUpdater(appContext) }
     var updateMessage by rememberSaveable { mutableStateOf("") }
     var updateAvailable by remember { mutableStateOf<com.lovelyreader.update.UpdateManifest?>(null) }
+    var updateHistory by remember { mutableStateOf<List<UpdateHistoryEntry>>(emptyList()) }
+    var updateHistoryMessage by rememberSaveable { mutableStateOf("") }
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
     val dramaViewModel: DramaViewModel = viewModel {
         DramaViewModel(
@@ -131,6 +136,7 @@ fun LovelyReaderApp(
     val isSearching by viewModel.isSearching.collectAsState()
     val isLoadingRanking by viewModel.isLoadingRanking.collectAsState()
     val isLoadingRandom by viewModel.isLoadingRandom.collectAsState()
+    val isRandomExhausted by viewModel.isRandomExhausted.collectAsState()
     val selectedDetail by viewModel.selectedDetail.collectAsState()
     val readerChapter by viewModel.readerChapter.collectAsState()
     val isLoadingChapter by viewModel.isLoadingChapter.collectAsState()
@@ -138,8 +144,6 @@ fun LovelyReaderApp(
     val lastReaderBookId by viewModel.lastReaderBookId.collectAsState()
     val downloadStatuses by viewModel.downloadStatuses.collectAsState()
     val downloadingBookIds by viewModel.downloadingBookIds.collectAsState()
-    val syncConfigured by viewModel.syncConfigured.collectAsState()
-    val syncMessage by viewModel.syncMessage.collectAsState()
     val appTheme by viewModel.appTheme.collectAsState()
     val searchHistory by viewModel.searchHistory.collectAsState()
 
@@ -168,19 +172,23 @@ fun LovelyReaderApp(
             results = searchResults,
             rankingResults = rankingResults,
             randomResults = randomResults,
-            categories = AggregatedNovelCatalog.categories,
+            categories = DiscoveryCatalog.primaryCategories,
+            romanceCategories = DiscoveryCatalog.romanceCategories,
             message = searchMessage,
             isSearching = isSearching,
             isLoadingRanking = isLoadingRanking,
             isLoadingRandom = isLoadingRandom,
+            isRandomExhausted = isRandomExhausted,
             rankingMessage = rankingMessage,
             randomMessage = randomMessage,
             searchHistory = searchHistory,
             onBack = { viewModel.openShelf() },
             onSearch = { query -> viewModel.performSearch(query) },
-            onRankingPeriodChanged = { period -> viewModel.refreshRanking(period) },
+            onRankingChanged = { period, category -> viewModel.refreshRanking(period, category) },
             onRandomBrowse = { category -> viewModel.refreshRandomBrowse(category) },
+            onRestartRandomBrowse = { category -> viewModel.restartRandomBrowse(category) },
             onSearchModeChanged = { category -> viewModel.refreshRandomBrowse(category) },
+            onCancelDiscoveryLoads = { viewModel.cancelDiscoveryLoads() },
             onOpenResult = { result -> viewModel.navigateToDetail(result) },
             onAddResultToShelf = { result -> viewModel.startDownloadToShelf(result) },
             bottomBar = { mainBottomBar(MainTab.Search) }
@@ -217,7 +225,7 @@ fun LovelyReaderApp(
                 }
             )
         }
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().background(appColors().cream)) {
         if (shouldShowSharedAppChrome(screen)) {
             AppExperienceSwitch(
                 selected = experience,
@@ -311,15 +319,6 @@ fun LovelyReaderApp(
             notes = viewModel.notes(),
             onBack = { viewModel.openShelf() },
             bottomBar = { mainBottomBar(MainTab.Notes) },
-            syncConfigured = syncConfigured,
-            syncMessage = syncMessage,
-            defaultToken = sync.githubToken,
-            defaultGistId = sync.gistId,
-            onSaveSyncCredentials = { token, gistId ->
-                viewModel.updateSyncCredentials(token, gistId)
-            },
-            onClearSyncMessage = { viewModel.clearSyncMessage() },
-            onClearSyncAuth = { viewModel.clearSyncAuth() },
             currentTheme = appTheme,
             onThemeChanged = { viewModel.setAppTheme(it) },
             updateMessage = updateMessage,
@@ -350,6 +349,19 @@ fun LovelyReaderApp(
                             appUpdater.openInstallPermissionSettings()
                         }
                     }.onFailure { updateMessage = it.message ?: "更新包下载失败" }
+                }
+            },
+            updateHistory = updateHistory,
+            updateHistoryMessage = updateHistoryMessage,
+            onLoadUpdateHistory = {
+                videoScope.launch {
+                    updateHistoryMessage = "正在读取版本记录…"
+                    appUpdater.history().onSuccess {
+                        updateHistory = it
+                        updateHistoryMessage = if (it.isEmpty()) "暂时没有可展示的版本记录" else ""
+                    }.onFailure {
+                        updateHistoryMessage = "版本记录暂不可用"
+                    }
                 }
             }
         )

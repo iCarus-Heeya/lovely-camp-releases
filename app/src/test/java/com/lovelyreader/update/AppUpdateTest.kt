@@ -6,6 +6,24 @@ import org.junit.Test
 
 class AppUpdateTest {
     @Test
+    fun `parses stable release history and skips drafts and prereleases`() {
+        val history = parseGitHubReleaseHistory(
+            """[
+                {"tag_name":"v0.8.16+79","name":"0.8.16","body":"阅读体验优化","published_at":"2026-08-21T03:00:00Z","draft":false,"prerelease":false},
+                {"tag_name":"v0.8.17+80-rc1","name":"候选","body":"不应展示","published_at":"2026-08-21T04:00:00Z","draft":false,"prerelease":true},
+                {"tag_name":"v0.8.15+78","name":"0.8.15","body":"下载体验优化","published_at":"2026-08-20T03:00:00Z","draft":false,"prerelease":false},
+                {"tag_name":"v0.8.14+77","name":"0.8.14","body":"分类浏览","published_at":"2026-08-19T03:00:00Z","draft":false,"prerelease":false},
+                {"tag_name":"v0.8.18+81","name":"草稿","body":"不应展示","published_at":null,"draft":true,"prerelease":false}
+            ]""".trimIndent(),
+            currentVersionCode = 76
+        )
+
+        assertEquals(listOf("0.8.16", "0.8.15", "0.8.14"), history.map { it.versionName })
+        assertEquals("阅读体验优化", history.first().notes)
+        assertEquals("2026-08-21T03:00:00Z", history.first().publishedAt)
+    }
+
+    @Test
     fun `a newer GitHub release supplies a verified APK update`() {
         val result = parseGitHubLatestRelease(
             """{

@@ -39,7 +39,11 @@ internal data class DownloadProgressReport(
     val percent: Int,
     val message: String,
     val downloadedChapters: Int = 0,
-    val totalChapters: Int = 0
+    val totalChapters: Int = 0,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val speedBytesPerSecond: Long = 0L,
+    val etaSeconds: Long? = null
 )
 
 internal suspend fun List<NovelSource>.downloadBookWithFallback(
@@ -50,7 +54,7 @@ internal suspend fun List<NovelSource>.downloadBookWithFallback(
     repository: LibraryRepository,
     config: DownloadCoordinatorConfig = DownloadCoordinatorConfig(),
     workDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    onProgress: (DownloadProgressReport) -> Unit
+    onProgress: suspend (DownloadProgressReport) -> Unit
 ): Pair<SearchResult, ChapterContent>? = withContext(workDispatcher) {
     withTimeoutOrNull(config.totalTimeoutMillis) {
     val title = bookTitle.ifBlank { initialResult.title }
@@ -62,28 +66,46 @@ internal suspend fun List<NovelSource>.downloadBookWithFallback(
     val normalizedTitle = title.normalizeForDownloadMatch()
     val normalizedAuthor = bookAuthor.normalizeForDownloadMatch()
 
-    emitProgress(onProgress, 4, "正在寻找最佳下载源")
+    val sortCandidates: (List<SearchResult>) -> List<SearchResult> = { candidates ->
+        candidates
+            .distinctBy { it.downloadKey() }
+            .filter {
+                SourceCapability.TXT_IMPORT in it.capabilities ||
+                    SourceCapability.READ_CHAPTER in it.capabilities
+            }
+            .sortedWith(
+                compareByDescending<SearchResult> { it.isExactBookMatch(normalizedTitle, normalizedAuthor) }
+                    .thenByDescending { SourceCapability.TXT_IMPORT in it.capabilities }
+                    .thenByDescending { it.sourceReliabilityScore() }
+            )
+    }
+
+    // The result the user selected is already a validated, capability-bearing candidate.
+    // Try it first so a successful TXT download does not wait for a full-site source scan.
+    val initialCandidate = sortCandidates(listOf(initialResult)).firstOrNull()
+    if (initialCandidate != null) {
+        emitProgress(onProgress, 8, "尝试 ${sourceDisplayName(initialCandidate.sourceId)}")
+        attemptWholeDownload(
+            candidateSources,
+            initialCandidate,
+            "下载来源 (${sourceDisplayName(initialCandidate.sourceId)})",
+            repository,
+            bookId,
+            config,
+            onProgress
+        )?.let { return@withTimeoutOrNull it }
+    }
+
+    // Search alternate sources only after the selected candidate has failed.
+    emitProgress(onProgress, 4, "正在寻找备用下载源")
     val alternatives = searchAlternativesForDownload(
         title = title,
         author = bookAuthor,
         excludedKey = initialResult.downloadKey(),
         searchTimeoutMillis = config.alternativeSearchTimeoutMillis
     )
-
-    val allCandidates = mutableListOf<SearchResult>()
-    allCandidates += initialResult
-    allCandidates += alternatives
-    val sortedCandidates = allCandidates
-        .distinctBy { it.downloadKey() }
-        .filter {
-            SourceCapability.TXT_IMPORT in it.capabilities ||
-                SourceCapability.READ_CHAPTER in it.capabilities
-        }
-        .sortedWith(
-            compareByDescending<SearchResult> { it.isExactBookMatch(normalizedTitle, normalizedAuthor) }
-                .thenByDescending { SourceCapability.TXT_IMPORT in it.capabilities }
-                .thenByDescending { it.sourceReliabilityScore() }
-        )
+    val sortedCandidates = sortCandidates(listOf(initialResult) + alternatives)
+        .filterNot { it.downloadKey() == initialResult.downloadKey() }
 
     sortedCandidates.forEachIndexed { index, candidate ->
         val sourceName = sourceDisplayName(candidate.sourceId)
@@ -116,7 +138,7 @@ private suspend fun attemptWholeDownload(
     repository: LibraryRepository,
     bookId: String,
     config: DownloadCoordinatorConfig,
-    onProgress: (DownloadProgressReport) -> Unit
+    onProgress: suspend (DownloadProgressReport) -> Unit
 ): Pair<SearchResult, ChapterContent>? {
     val source = allSources.firstOrNull { it.sourceId == result.sourceId } ?: return null
     val chapters = withTimeoutOrNull(config.sourceTimeoutMillis) {
@@ -153,13 +175,30 @@ private suspend fun downloadTxtLike(
     repository: LibraryRepository,
     bookId: String,
     config: DownloadCoordinatorConfig,
-    onProgress: (DownloadProgressReport) -> Unit
+    onProgress: suspend (DownloadProgressReport) -> Unit
 ): Pair<SearchResult, ChapterContent>? {
     emitProgress(onProgress, 10, "正在下载 TXT 全文")
     repeat(2) { attempt ->
+        val meter = DownloadTransferMeter()
         val content = withTimeoutOrNull(config.txtDownloadTimeoutMillis) {
             runCatching {
-                source.getChapterContent(txtChapterUrl)
+                source.getChapterContentWithProgress(txtChapterUrl) { readBytes, totalBytes ->
+                    val sample = meter.sample(readBytes, totalBytes)
+                    val fraction = totalBytes?.takeIf { it > 0L }?.let { readBytes.toDouble() / it }
+                    val percent = fraction?.let { (10 + (it * 86).toInt()).coerceIn(10, 96) } ?: 10
+                    val totalLabel = totalBytes?.let(::formatByteCount) ?: "总量未知"
+                    emitProgress(
+                        onProgress = onProgress,
+                        percent = percent,
+                        message = "正在下载 TXT 全文 · ${formatByteCount(readBytes)}/$totalLabel · ${formatSpeed(sample.speedBytesPerSecond)}",
+                        downloaded = 1,
+                        total = 1,
+                        downloadedBytes = readBytes,
+                        totalBytes = totalBytes ?: 0L,
+                        speedBytesPerSecond = sample.speedBytesPerSecond,
+                        etaSeconds = sample.etaSeconds
+                    )
+                }
             }.getOrNull()
         }?.takeIf { SourceContentGuard.isReadableNovelText(it.content) }
         if (content != null) {
@@ -181,7 +220,7 @@ private suspend fun downloadChaptersConcurrently(
     bookId: String,
     config: DownloadCoordinatorConfig,
     label: String,
-    onProgress: (DownloadProgressReport) -> Unit
+    onProgress: suspend (DownloadProgressReport) -> Unit
 ): Pair<SearchResult, ChapterContent>? {
     val total = chapters.size
     val existing = repository.partialChaptersFor(bookId)
@@ -207,7 +246,7 @@ private suspend fun downloadChaptersConcurrently(
         try {
             chapters.forEachIndexed { index, chapter ->
                 if (results[index] != null) {
-                    tracker.reportSuccess()
+                    tracker.reportSuccess(index, onProgress)
                     return@forEachIndexed
                 }
                 launch {
@@ -215,7 +254,10 @@ private suspend fun downloadChaptersConcurrently(
                         val content = downloadChapterWithRetry(
                             chapter = chapter,
                             source = primarySource,
-                            config = config
+                            config = config,
+                            onProgress = { readBytes, totalBytes ->
+                                tracker.reportBytes(index, readBytes, totalBytes, onProgress)
+                            }
                         )
                         if (content != null) {
                             results[index] = content
@@ -229,9 +271,9 @@ private suspend fun downloadChaptersConcurrently(
                                     sourceId = primarySource.sourceId
                                 )
                             )
-                            tracker.reportSuccess()
+                            tracker.reportSuccess(index, onProgress)
                         } else {
-                            tracker.reportFailure()
+                            tracker.reportFailure(index, onProgress)
                         }
                     }
                 }
@@ -248,11 +290,12 @@ private suspend fun downloadChaptersConcurrently(
 private suspend fun downloadChapterWithRetry(
     chapter: Chapter,
     source: NovelSource,
-    config: DownloadCoordinatorConfig
+    config: DownloadCoordinatorConfig,
+    onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
 ): ChapterContent? {
     repeat(config.chapterRetryCount) { attempt ->
         val content = withTimeoutOrNull(config.chapterTimeoutMillis) {
-            runCatching { source.getChapterContent(chapter.url) }.getOrNull()
+            runCatching { source.getChapterContentWithProgress(chapter.url, onProgress) }.getOrNull()
         }
         if (content != null && isReadableChapterContent(content.content)) {
             return content
@@ -284,7 +327,7 @@ private suspend fun assembleBook(
     repository: LibraryRepository,
     bookId: String,
     config: DownloadCoordinatorConfig,
-    onProgress: (DownloadProgressReport) -> Unit
+    onProgress: suspend (DownloadProgressReport) -> Unit
 ): Pair<SearchResult, ChapterContent>? {
     emitProgress(onProgress, 96, "合并章节 ${downloaded.size}/${chapters.size}", downloaded.size, chapters.size)
 
@@ -430,33 +473,135 @@ private fun SearchResult.sourceReliabilityScore(): Int {
     }
 }
 
-private fun emitProgress(
-    onProgress: (DownloadProgressReport) -> Unit,
+private suspend fun emitProgress(
+    onProgress: suspend (DownloadProgressReport) -> Unit,
     percent: Int,
     message: String,
     downloaded: Int = 0,
-    total: Int = 0
+    total: Int = 0,
+    downloadedBytes: Long = 0L,
+    totalBytes: Long = 0L,
+    speedBytesPerSecond: Long = 0L,
+    etaSeconds: Long? = null
 ) {
-    onProgress(DownloadProgressReport(percent.coerceIn(0, 100), message, downloaded, total))
+    onProgress(
+        DownloadProgressReport(
+            percent = percent.coerceIn(0, 100),
+            message = message,
+            downloadedChapters = downloaded,
+            totalChapters = total,
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
+            speedBytesPerSecond = speedBytesPerSecond,
+            etaSeconds = etaSeconds
+        )
+    )
 }
 
 private class DownloadProgressTracker(private val total: Int) {
     private var successCount = 0
     private var failureCount = 0
+    private val bytesRead = LongArray(total)
+    private val bytesTotal = LongArray(total)
+    private var lastReportAtMillis = 0L
+    private var lastSampleAtMillis = System.currentTimeMillis()
+    private var lastSampleBytes = 0L
+    private var speedBytesPerSecond = 0L
 
-    fun reportSuccess() {
-        synchronized(this) { successCount++ }
+    suspend fun reportSuccess(index: Int, onProgress: suspend (DownloadProgressReport) -> Unit) {
+        synchronized(this) {
+            successCount++
+            bytesTotal[index] = maxOf(bytesTotal[index], bytesRead[index])
+        }
+        emitHeartbeat(onProgress)
     }
 
-    fun reportFailure() {
+    suspend fun reportFailure(index: Int, onProgress: suspend (DownloadProgressReport) -> Unit) {
         synchronized(this) { failureCount++ }
+        emitHeartbeat(onProgress)
     }
 
-    fun emitHeartbeat(onProgress: (DownloadProgressReport) -> Unit) {
-        val (success, failure) = synchronized(this) { successCount to failureCount }
+    suspend fun reportBytes(
+        index: Int,
+        readBytes: Long,
+        totalBytes: Long?,
+        onProgress: suspend (DownloadProgressReport) -> Unit
+    ) {
+        val shouldEmit = synchronized(this) {
+            bytesRead[index] = maxOf(bytesRead[index], readBytes)
+            totalBytes?.takeIf { it > 0L }?.let { bytesTotal[index] = maxOf(bytesTotal[index], it) }
+            val now = System.currentTimeMillis()
+            val elapsed = (now - lastSampleAtMillis).coerceAtLeast(1L)
+            val aggregate = bytesRead.sum()
+            speedBytesPerSecond = ((aggregate - lastSampleBytes) * 1000L / elapsed).coerceAtLeast(0L)
+            lastSampleBytes = aggregate
+            lastSampleAtMillis = now
+            now - lastReportAtMillis >= 400L
+        }
+        if (shouldEmit) emitHeartbeat(onProgress)
+    }
+
+    suspend fun emitHeartbeat(onProgress: suspend (DownloadProgressReport) -> Unit) {
+        val snapshot = synchronized(this) {
+            lastReportAtMillis = System.currentTimeMillis()
+            val totalRead = bytesRead.sum()
+            val totalExpected = bytesTotal.sum()
+            Triple(successCount, failureCount, totalRead to totalExpected)
+        }
+        val (success, failure, bytes) = snapshot
         val processed = success + failure
-        val percent = if (total > 0) (processed * 94 / total).coerceIn(0, 94) else 0
-        val message = "正在下载第 $processed/$total 章，成功 $success 章"
-        onProgress(DownloadProgressReport(percent, message, success, total))
+        val (readBytes, totalBytes) = bytes
+        val byteFraction = totalBytes.takeIf { it > 0L }?.let { readBytes.toDouble() / it }
+        val percent = when {
+            byteFraction != null -> (10 + (byteFraction * 86).toInt()).coerceIn(10, 96)
+            total > 0 -> (10 + processed * 86 / total).coerceIn(10, 96)
+            else -> 10
+        }
+        val etaSeconds = totalBytes.takeIf { it > readBytes && speedBytesPerSecond > 0L }
+            ?.let { (it - readBytes) / speedBytesPerSecond }
+        val speed = speedBytesPerSecond
+        val message = if (totalBytes > 0L) {
+            "正在下载第 $processed/$total 章 · ${formatByteCount(readBytes)}/${formatByteCount(totalBytes)} · ${formatSpeed(speed)}"
+        } else {
+            "正在下载第 $processed/$total 章，成功 $success 章"
+        }
+        onProgress(
+            DownloadProgressReport(
+                percent = percent,
+                message = message,
+                downloadedChapters = success,
+                totalChapters = total,
+                downloadedBytes = readBytes,
+                totalBytes = totalBytes,
+                speedBytesPerSecond = speed,
+                etaSeconds = etaSeconds
+            )
+        )
     }
 }
+
+private data class TransferSample(val speedBytesPerSecond: Long, val etaSeconds: Long?)
+
+private class DownloadTransferMeter {
+    private var lastAtMillis = System.currentTimeMillis()
+    private var lastBytes = 0L
+
+    fun sample(readBytes: Long, totalBytes: Long?): TransferSample {
+        val now = System.currentTimeMillis()
+        val elapsed = (now - lastAtMillis).coerceAtLeast(1L)
+        val speed = ((readBytes - lastBytes).coerceAtLeast(0L) * 1000L / elapsed).coerceAtLeast(0L)
+        lastAtMillis = now
+        lastBytes = readBytes
+        val eta = totalBytes?.takeIf { it > readBytes && speed > 0L }
+            ?.let { (it - readBytes) / speed }
+        return TransferSample(speed, eta)
+    }
+}
+
+private fun formatByteCount(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    if (bytes < 1024L * 1024L) return "${bytes / 1024L} KB"
+    return "${bytes / (1024L * 1024L)} MB"
+}
+
+private fun formatSpeed(bytesPerSecond: Long): String = "${formatByteCount(bytesPerSecond)}/秒"

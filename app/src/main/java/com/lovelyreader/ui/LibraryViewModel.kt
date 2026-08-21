@@ -12,10 +12,14 @@ import com.lovelyreader.domain.BookStatus
 import com.lovelyreader.domain.ChapterContent
 import com.lovelyreader.domain.RankingPeriod
 import com.lovelyreader.domain.SearchResult
-import com.lovelyreader.domain.SizeBand
 import com.lovelyreader.domain.SourceCapability
-import com.lovelyreader.source.AggregatedNovelCatalog
 import com.lovelyreader.source.BrowsableNovelSource
+import com.lovelyreader.source.CategoryBrowseResult
+import com.lovelyreader.source.DiscoveryCoordinator
+import com.lovelyreader.source.DiscoveryEndpoint
+import com.lovelyreader.source.DiscoveryLoadStatus
+import com.lovelyreader.source.DiscoveryRequestGate
+import com.lovelyreader.source.DiscoveryRotation
 import com.lovelyreader.source.IjjxsSource
 import com.lovelyreader.source.IxdzsSource
 import com.lovelyreader.source.NovelSource
@@ -24,6 +28,9 @@ import com.lovelyreader.source.QisuwangSource
 import com.lovelyreader.source.SearchResultMerger
 import com.lovelyreader.source.SourceContentGuard
 import com.lovelyreader.source.ZxcsSource
+import com.lovelyreader.source.normalizedBookIdentity
+import com.lovelyreader.source.compatibleWithAny
+import com.lovelyreader.source.safeCategoryBrowse
 import com.lovelyreader.source.stableBookId
 import com.lovelyreader.sync.ReadingEvent
 import com.lovelyreader.sync.ReadingEventType
@@ -37,10 +44,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.random.Random
 
 enum class ShelfSortMode {
     Default, ByProgress, ByTitle
@@ -55,14 +62,16 @@ internal fun persistLibrarySnapshot(
     persistence.save(snapshot())
 }
 
-class LibraryViewModel(
+internal class LibraryViewModel(
     private val repository: LibraryRepository,
     private val persistence: LibraryPersistence,
-    private val sync: ReadingLogSync
+    private val sync: ReadingLogSync,
+    private val downloadScheduler: BookDownloadScheduler
 ) : ViewModel() {
 
     private val sources = listOf(IxdzsSource(), IjjxsSource(), QisuwangSource(), QinkanSource(), ZxcsSource())
-    private val catalog = AggregatedNovelCatalog
+    private val discoveryRotation = DiscoveryRotation()
+    private val discoveryCoordinator = DiscoveryCoordinator(discoveryRotation)
 
     private val _screen = MutableStateFlow<Screen>(Screen.Shelf)
     val screen: StateFlow<Screen> = _screen.asStateFlow()
@@ -82,7 +91,7 @@ class LibraryViewModel(
     private val _searchMessage = MutableStateFlow(WarmPhrases.searchIdle.random())
     val searchMessage: StateFlow<String> = _searchMessage.asStateFlow()
 
-    private val _rankingMessage = MutableStateFlow("打开排行榜时会刷新真实来源。")
+    private val _rankingMessage = MutableStateFlow("打开首页精选时会刷新真实来源。")
     val rankingMessage: StateFlow<String> = _rankingMessage.asStateFlow()
 
     private val _randomMessage = MutableStateFlow("选择类型后会从真实来源随机换一批，默认全部。")
@@ -97,13 +106,18 @@ class LibraryViewModel(
     private val _isLoadingRandom = MutableStateFlow(false)
     val isLoadingRandom: StateFlow<Boolean> = _isLoadingRandom.asStateFlow()
 
+    private val _isRandomExhausted = MutableStateFlow(false)
+    val isRandomExhausted: StateFlow<Boolean> = _isRandomExhausted.asStateFlow()
+
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
     private var searchJob: Job? = null
+    private var rankingJob: Job? = null
+    private var randomJob: Job? = null
     private var searchRunId = 0
-    private var rankingRunId = 0
-    private var randomRunId = 0
+    private val rankingGate = DiscoveryRequestGate()
+    private val randomGate = DiscoveryRequestGate()
 
     private val _selectedDetail = MutableStateFlow<BookDetail?>(null)
     val selectedDetail: StateFlow<BookDetail?> = _selectedDetail.asStateFlow()
@@ -125,6 +139,7 @@ class LibraryViewModel(
 
     private val _downloadingBookIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadingBookIds: StateFlow<Set<String>> = _downloadingBookIds.asStateFlow()
+    private val downloadWatchJobs = mutableMapOf<String, Job>()
 
     private val _syncConfigured = MutableStateFlow(sync.isConfigured)
     val syncConfigured: StateFlow<Boolean> = _syncConfigured.asStateFlow()
@@ -157,6 +172,7 @@ class LibraryViewModel(
                     else -> BookDownloadStatus()
                 }
             }
+            _shelfBooks.value.forEach { watchDownload(it.id) }
         }
     }
 
@@ -234,7 +250,7 @@ class LibraryViewModel(
     }
 
     fun navigateToDetail(result: SearchResult) {
-        repository.markSeenTitle(result.title)
+        repository.markSeenBook(result.title, result.author)
         persist()
         _selectedDetail.value = null
         _readerChapter.value = null
@@ -263,75 +279,126 @@ class LibraryViewModel(
         _lastReaderBookId.value = null
     }
 
-    fun refreshRanking(period: RankingPeriod) {
-        val runId = rankingRunId + 1
-        rankingRunId = runId
+    @Suppress("UNUSED_PARAMETER")
+    fun refreshRanking(period: RankingPeriod, category: String = "全部") {
+        cancelDiscoveryJobs()
+        val requestId = rankingGate.begin()
         _isLoadingRanking.value = true
         _rankingResults.value = emptyList()
-        _rankingMessage.value = "正在从真实来源刷新${period.label}。"
-        viewModelScope.launch {
-            val realResults = sources
-                .filterIsInstance<BrowsableNovelSource>()
-                .map { source ->
+        _rankingMessage.value = if (category == "全部") {
+            "正在从各来源首页刷新精选。"
+        } else {
+            "正在从真实分类页刷新「$category」精选。"
+        }
+        rankingJob = viewModelScope.launch {
+            try {
+                val sourceResults = sources.mapNotNull { source ->
+                    (source as? BrowsableNovelSource)?.let { source to it }
+                }.map { (source, browse) ->
                     async {
-                        withContext(Dispatchers.Default) {
-                            withTimeoutOrNull(18_000) {
-                                runCatching { source.ranking(period) }.getOrDefault(emptyList())
-                            }.orEmpty()
+                        source.sourceId to safeCategoryBrowse(10_000) {
+                            if (category == "全部") browse.homepageFeatured()
+                            else browse.categoryBrowse(category, 1)
                         }
                     }
                 }
                 .awaitAll()
-                .flatten()
-                .filterNot { it.title in repository.seenTitles() }
-            if (rankingRunId == runId) {
-                _rankingResults.value = SearchResultMerger.merge(realResults)
-                _rankingMessage.value = if (_rankingResults.value.isEmpty()) {
-                    "这次没有拿到真实排行榜，可能是来源站点超时或拦截。"
-                } else {
-                    "已刷新 ${_rankingResults.value.size} 条真实来源排行榜结果。"
+                if (rankingGate.isCurrent(requestId)) {
+                    val successes = sourceResults.mapNotNull { (_, result) -> result as? CategoryBrowseResult.Success }
+                    val failures = sourceResults.count { it.second is CategoryBrowseResult.Failure }
+                    val seenBooks = repository.seenBookIdentities()
+                    _rankingResults.value = SearchResultMerger.merge(successes.flatMap { it.items })
+                        .filterNot { compatibleWithAny(normalizedBookIdentity(it), seenBooks) }
+                    _rankingMessage.value = when {
+                        successes.isEmpty() && failures > 0 -> "来源网络请求失败，请稍后重试；现有内容没有被当作页尾。"
+                        successes.isEmpty() -> "没有来源能精确提供「$category」分类，不会回退到近似栏目。"
+                        _rankingResults.value.isEmpty() -> if (category == "全部") {
+                            "来源首页当前没有未读的精选内容。"
+                        } else {
+                            "「$category」当前没有未读的分类精选。"
+                        }
+                        failures > 0 || successes.any { it.partialFailure } -> {
+                            "已保留可用来源的 ${_rankingResults.value.size} 条精选，部分来源暂时连接失败。"
+                        }
+                        category == "全部" -> "已刷新 ${_rankingResults.value.size} 条来源首页精选。"
+                        else -> "已从真实分类页刷新 ${_rankingResults.value.size} 条「$category」精选。"
+                    }
                 }
-                _isLoadingRanking.value = false
+            } finally {
+                if (rankingGate.isCurrent(requestId)) _isLoadingRanking.value = false
             }
         }
     }
 
     fun refreshRandomBrowse(category: String) {
-        val runId = randomRunId + 1
-        randomRunId = runId
+        cancelDiscoveryJobs()
+        val requestId = randomGate.begin()
         _isLoadingRandom.value = true
+        _isRandomExhausted.value = false
         _randomResults.value = emptyList()
         _randomMessage.value = "正在从真实来源按「$category」随机拉取。"
-        viewModelScope.launch {
-            val realResults = sources
-                .filterIsInstance<BrowsableNovelSource>()
-                .map { source ->
-                    async {
-                        withContext(Dispatchers.Default) {
-                            withTimeoutOrNull(18_000) {
-                                runCatching { source.randomBrowse(category, false, SizeBand("all", 0, 999_999)) }.getOrDefault(emptyList())
-                            }.orEmpty()
+        randomJob = viewModelScope.launch {
+            val endpoints = sources.mapNotNull { source ->
+                val browse = source as? BrowsableNovelSource ?: return@mapNotNull null
+                DiscoveryEndpoint(source.sourceId) { requestedCategory, page ->
+                    safeCategoryBrowse(8_000) { browse.categoryBrowse(requestedCategory, page) }
+                }
+            }
+            try {
+                val outcome = discoveryCoordinator.load(
+                    category = category,
+                    sources = endpoints,
+                    seenTitles = repository.seenTitles(),
+                    seenBooks = repository.seenBookIdentities(),
+                    seed = requestId,
+                    isCurrent = { randomGate.isCurrent(requestId) }
+                )
+                if (randomGate.isCurrent(requestId)) {
+                    _randomResults.value = outcome.items
+                    _isRandomExhausted.value = outcome.status == DiscoveryLoadStatus.EXHAUSTED
+                    _randomMessage.value = when (outcome.status) {
+                        DiscoveryLoadStatus.SUCCESS -> "已从「$category」真实分类页换来 ${outcome.items.size} 本；本轮不会重复。"
+                        DiscoveryLoadStatus.PARTIAL_SUCCESS -> {
+                            if (outcome.items.isEmpty()) "部分来源暂时连接失败，浏览进度和历史已保留。"
+                            else "已保留可用来源的 ${outcome.items.size} 本，部分来源暂时连接失败。"
                         }
+                        DiscoveryLoadStatus.FAILURE -> "来源网络请求失败，请稍后重试；浏览进度和去重历史均已保留。"
+                        DiscoveryLoadStatus.UNSUPPORTED -> "没有来源能精确提供「$category」分类，不会回退到近似栏目。"
+                        DiscoveryLoadStatus.EXHAUSTED -> "「$category」本轮已经看完，不会自动重复；可点“重新开始”重置。"
+                        DiscoveryLoadStatus.NO_NEW_ITEMS -> "这一页没有未展示过的新书，页码已继续向后；再点一次换一批。"
+                        DiscoveryLoadStatus.STALE -> return@launch
                     }
                 }
-                .awaitAll()
-                .flatten()
-                .filterNot { it.title in repository.seenTitles() }
-            if (randomRunId == runId) {
-                val merged = SearchResultMerger.merge(realResults)
-                _randomResults.value = merged.shuffled(Random(runId)).take(12)
-                _randomMessage.value = if (_randomResults.value.isEmpty()) {
-                    "这次没有拿到「$category」的真实推荐，可能是来源站点超时或该分类暂未适配。"
-                } else {
-                    "已从真实来源按「$category」换来 ${_randomResults.value.size} 本。"
-                }
-                _isLoadingRandom.value = false
+            } finally {
+                if (randomGate.isCurrent(requestId)) _isLoadingRandom.value = false
             }
         }
     }
 
-    fun performSearch(query: String) {
+    fun restartRandomBrowse(category: String) {
+        cancelDiscoveryJobs()
+        discoveryRotation.reset(category)
+        refreshRandomBrowse(category)
+    }
+
+    fun cancelDiscoveryLoads() {
+        cancelDiscoveryJobs()
+    }
+
+    private fun cancelDiscoveryJobs() {
         searchJob?.cancel()
+        rankingJob?.cancel()
+        randomJob?.cancel()
+        searchRunId += 1
+        rankingGate.begin()
+        randomGate.begin()
+        _isSearching.value = false
+        _isLoadingRanking.value = false
+        _isLoadingRandom.value = false
+    }
+
+    fun performSearch(query: String) {
+        cancelDiscoveryJobs()
         val runId = searchRunId + 1
         searchRunId = runId
         if (query.isBlank()) {
@@ -377,9 +444,8 @@ class LibraryViewModel(
         val book = preferredBook ?: result.toBook()
         repository.addToShelf(book)
         _shelfBooks.value = repository.bookshelf()
-        repository.markSeenTitle(book.title)
+        repository.markSeenBook(book.title, book.author)
         repository.updateProgress(book.id, result.bookUrl, 0)
-        persist()
         recordEvent(ReadingEventType.ADD_SHELF, book = book, sourceId = result.sourceId)
         _selectedDetail.value = null
         _readerChapter.value = null
@@ -389,45 +455,31 @@ class LibraryViewModel(
         _downloadingBookIds.value = _downloadingBookIds.value + book.id
         _screen.value = Screen.Shelf
 
+        // Save the shelf snapshot before WorkManager starts. A worker may be
+        // launched immediately, so an asynchronous persist after enqueue can
+        // otherwise race with the worker's initial restore.
         viewModelScope.launch {
-            try {
-                val downloaded = sources.downloadBookWithFallback(
-                bookId = book.id,
-                initialResult = result,
-                bookTitle = book.title,
-                author = book.author,
-                repository = repository,
-                onProgress = { report ->
-                    updateDownloadStatus(book.id, BookDownloadStatus(DownloadState.Downloading, report.percent, report.message))
-                }
-            )
-            if (downloaded != null) {
-                val (downloadedResult, chapter) = downloaded
-                val storedBook = book.copy(
-                    sourceIds = listOf(downloadedResult.sourceId),
-                    summary = downloadedResult.summary.ifBlank { book.summary },
-                    coverUrl = downloadedResult.coverUrl ?: book.coverUrl
+            runCatching {
+                persistence.save(repository.snapshot())
+                downloadScheduler.enqueue(
+                    BookDownloadWorkInput(
+                        bookId = book.id,
+                        bookTitle = book.title,
+                        author = book.author,
+                        result = result
+                    )
                 )
-                repository.addToShelf(storedBook)
-                repository.cacheOfflineChapter(storedBook.id, chapter)
-                repository.updateProgress(storedBook.id, chapter.url, 0)
-                _shelfBooks.value = repository.bookshelf()
-                persist()
-                val readyMessage = if (downloadedResult.sourceId == result.sourceId) {
-                    "已下载"
-                } else {
-                    "已换源下载"
-                }
-                updateDownloadStatus(storedBook.id, BookDownloadStatus(DownloadState.Ready, 100, readyMessage))
-            } else {
+                watchDownload(book.id)
+            }.onFailure { error ->
+                _downloadingBookIds.value = _downloadingBookIds.value - book.id
                 updateDownloadStatus(
                     book.id,
-                    BookDownloadStatus(DownloadState.Failed, 0, "下载失败：已尝试换源，公开来源仍返回验证页或暂时不可读")
+                    BookDownloadStatus(
+                        state = DownloadState.Failed,
+                        percent = 0,
+                        message = "无法开始下载：${error.message.orEmpty()}"
+                    )
                 )
-                persist()
-            }
-            } finally {
-                _downloadingBookIds.value = _downloadingBookIds.value - book.id
             }
         }
     }
@@ -440,6 +492,8 @@ class LibraryViewModel(
     }
 
     fun deleteBook(bookId: String) {
+        downloadScheduler.cancel(bookId)
+        downloadWatchJobs.remove(bookId)?.cancel()
         val book = repository.bookById(bookId)
         repository.deleteBook(bookId)
         _shelfBooks.value = repository.bookshelf()
@@ -547,6 +601,32 @@ class LibraryViewModel(
 
     private fun updateDownloadStatus(bookId: String, status: BookDownloadStatus) {
         _downloadStatuses.value = _downloadStatuses.value + (bookId to status)
+    }
+
+    private fun watchDownload(bookId: String) {
+        downloadWatchJobs.remove(bookId)?.cancel()
+        downloadWatchJobs[bookId] = viewModelScope.launch {
+            var handledFinal = false
+            downloadScheduler.observe(bookId).collect { task ->
+                updateDownloadStatus(bookId, task.progress)
+                if (task.state == BookDownloadTaskState.ENQUEUED ||
+                    task.state == BookDownloadTaskState.RUNNING
+                ) {
+                    _downloadingBookIds.value = _downloadingBookIds.value + bookId
+                }
+                if (task.state == BookDownloadTaskState.SUCCEEDED ||
+                    task.state == BookDownloadTaskState.FAILED ||
+                    task.state == BookDownloadTaskState.CANCELLED
+                ) {
+                    _downloadingBookIds.value = _downloadingBookIds.value - bookId
+                    if (!handledFinal) {
+                        handledFinal = true
+                        persistence.load()?.let(repository::restore)
+                        _shelfBooks.value = repository.bookshelf()
+                    }
+                }
+            }
+        }
     }
 
     private fun recordEvent(

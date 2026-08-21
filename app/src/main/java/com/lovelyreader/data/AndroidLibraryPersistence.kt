@@ -3,14 +3,21 @@ package com.lovelyreader.data
 import android.content.Context
 import com.lovelyreader.domain.AppTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
     private val preferences = context.getSharedPreferences("lovely_reader_library", Context.MODE_PRIVATE)
     private val codec = LibrarySnapshotCodec()
     private val contentPersistence = ChapterContentFilePersistence(context)
+    private val persistenceMutex = Mutex()
 
-    override suspend fun save(snapshot: LibrarySnapshot) = withContext(Dispatchers.IO) {
+    override suspend fun save(snapshot: LibrarySnapshot) = persistenceMutex.withLock {
+        saveInternal(snapshot)
+    }
+
+    private suspend fun saveInternal(snapshot: LibrarySnapshot) = withContext(Dispatchers.IO) {
         // 大段章节文本单独写文件，SharedPreferences 只存元数据，避免 OOM。
         contentPersistence.saveOfflineChapters(snapshot.offlineChapters)
         contentPersistence.savePartialChapters(snapshot.partialChapters)
@@ -27,6 +34,7 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
             .putString("bookmarks", encoded.bookmarks)
             .putString("notes", encoded.notes)
             .putString("seenTitles", encoded.seenTitles)
+            .putString("seenBookIdentities", encoded.seenBookIdentities)
             .putString("offlineChapters", encoded.offlineChapters)
             .putString("partialChapters", encoded.partialChapters)
             .putString("readerFontSize", encoded.readerFontSize)
@@ -35,7 +43,9 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
             .apply()
     }
 
-    override suspend fun load(): LibrarySnapshot? = withContext(Dispatchers.IO) {
+    override suspend fun load(): LibrarySnapshot? = loadInternal()
+
+    private suspend fun loadInternal(): LibrarySnapshot? = withContext(Dispatchers.IO) {
         if (!preferences.contains("books")) return@withContext null
         val meta = codec.decode(
             EncodedLibrarySnapshot(
@@ -44,6 +54,7 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
                 bookmarks = preferences.getString("bookmarks", "").orEmpty(),
                 notes = preferences.getString("notes", "").orEmpty(),
                 seenTitles = preferences.getString("seenTitles", "").orEmpty(),
+                seenBookIdentities = preferences.getString("seenBookIdentities", "").orEmpty(),
                 offlineChapters = preferences.getString("offlineChapters", "").orEmpty(),
                 partialChapters = preferences.getString("partialChapters", "").orEmpty(),
                 readerFontSize = preferences.getString("readerFontSize", null) ?: defaultReaderFontSize.toString(),
@@ -55,5 +66,34 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
             offlineChapters = contentPersistence.loadOfflineChapters(meta.offlineChapters),
             partialChapters = contentPersistence.loadPartialChapters(meta.partialChapters)
         )
+    }
+
+    /**
+     * Persists only the download-owned state for [bookId] on top of the latest
+     * snapshot. This prevents a long-running background worker from replacing
+     * newer shelf, reading-position, or settings changes made by the user.
+     */
+    suspend fun mergeDownloadSnapshot(bookId: String, downloadSnapshot: LibrarySnapshot) {
+        persistenceMutex.withLock {
+            val latest = loadInternal()
+            if (latest == null) {
+                saveInternal(downloadSnapshot)
+                return@withLock
+            }
+            // A user may delete the book while the worker is still finishing
+            // a network request. Do not resurrect a deleted shelf entry.
+            if (latest.books.none { it.id == bookId }) return@withLock
+            val downloadedBook = downloadSnapshot.books.firstOrNull { it.id == bookId }
+            val merged = latest.copy(
+                books = latest.books.filterNot { it.id == bookId } + listOfNotNull(downloadedBook),
+                progress = latest.progress.filterNot { it.bookId == bookId } +
+                    downloadSnapshot.progress.filter { it.bookId == bookId },
+                offlineChapters = latest.offlineChapters.filterNot { it.bookId == bookId } +
+                    downloadSnapshot.offlineChapters.filter { it.bookId == bookId },
+                partialChapters = latest.partialChapters.filterNot { it.bookId == bookId } +
+                    downloadSnapshot.partialChapters.filter { it.bookId == bookId }
+            )
+            saveInternal(merged)
+        }
     }
 }
