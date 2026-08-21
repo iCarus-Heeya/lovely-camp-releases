@@ -1,5 +1,11 @@
 # Project Memory
 
+## Latest UI Audit: 2026-08-22 — high-fidelity restoration is still incomplete
+
+- The installed and published `v0.8.16+79` package is the current functional build, but it is not a page-level 1:1 implementation of `docs/ui/concepts-20260821/*-v3-1080x2400.png`.
+- Only the shared `InkWashBackground`, real book covers, drama metadata merge, update history and settings cleanup were applied. `BookshelfScreen`, `SearchScreen`, `BookDetailScreen` and the drama/settings surfaces still retain the earlier Material 3 page hierarchy, so the overall appearance remains close to the old release.
+- MuMu screenshots proved functional navigation and data rendering, not visual parity. The high-fidelity plan remains incomplete; the defect and required visual acceptance gate are recorded in `docs/ui/bug-experience.md` record 5 and `docs/ui/release-record.md`.
+
 ## Latest Investigation: 2026-08-21 — VPN traffic peak reported for 2026-08-19
 
 - The supplied VPN chart is aggregate (about 6.39 GB down / 1.28 GB up) and contains no per-process evidence. The app has no `VpnService` or proxy service, and the 2026-08-18 GitHub release asset was about 19.5 MB; no development action accounts for a multi-GB upload.
