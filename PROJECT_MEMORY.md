@@ -1,12 +1,98 @@
 # Project Memory
 
-## Latest Update: 2026-08-18 Version 0.8.13 - automatic update discovery and source safety
+## Latest Investigation: 2026-08-21 — VPN traffic peak reported for 2026-08-19
+
+- The supplied VPN chart is aggregate (about 6.39 GB down / 1.28 GB up) and contains no per-process evidence. The app has no `VpnService` or proxy service, and the 2026-08-18 GitHub release asset was about 19.5 MB; no development action accounts for a multi-GB upload.
+- Automatic update discovery is metadata-only and throttled to once per 24 hours on validated Wi-Fi/Ethernet; APK transfer requires the user to confirm. Video/book transfers are user-triggered and primarily downloads.
+- A real lifecycle risk was found: `LovelyReaderApp` constructs `ReadingLogSync` during composition while its initializer starts a 30-second polling coroutine. If Gist sync is enabled, repeated recomposition can create duplicate loops. Default sync remains disabled without user credentials, so this is a risk and not yet the proven cause of the 8/19 peak. Investigation and required device evidence are recorded in `docs/audit/network-traffic-2026-08-19.md`.
+
+## Latest Update: 2026-08-21 — reader font-change continuity fix
+
+- `ReaderScreen` no longer clears its page list when the font size changes. The old layout remains visible while the new font layout is measured, so a font click cannot flash a blank reader or recreate the pager from the old opening index.
+- Font changes capture the current logical progress and restore the nearest page after a new layout generation is committed. Chapter loading remains keyed by book identity, not font size, so typography changes do not refetch the chapter.
+- TDD evidence: the new `ReaderTextPagerTest.fontSizeChangeMapsSavedProgressToTheNewPageCount` first failed in the red copy with an unresolved helper, then passed after the minimal fix. Full fresh ASCII `testDebugUnitTest` passed with 256 tests, 0 failures/errors, 8 skipped; release and debug APK builds passed.
+- MuMu Android 12 `127.0.0.1:16384` installed v0.8.16, opened `九龙盘潇`, advanced to `1.69%`, changed font `18 -> 20`, and stayed populated at `1.78%`; no FATAL/ANR appeared. Evidence and hashes are in `docs/reader/release-0.8.16-font-change-continuity.md`.
+
+## Latest Release Candidate: 2026-08-21 Version 0.8.16 - reader font-change continuity
+
+- VersionCode `79`, versionName `0.8.16`, package `com.lovelyreader`, label `老婆的小营地`.
+- Release artifact: root `老婆的小营地-v0.8.16.apk`, SHA-256 `F036E89EF431957DA2C3FF38CF211EA44941ACDAFADF4E039964C6A711370DDA`.
+- Debug artifact: root `老婆的小营地-debug-v0.8.16.apk`, SHA-256 `F3866892878CEEB9E2E9AFC66BC931136A86C7FDFF58E6A76848DC46D05C53DC`.
+- Fresh ASCII build `C:\Users\iCarus\.codex\visualizations\2026\08\11\019fee72-6da6-7d02-a4c8-5e5a3c49c39d\lovely-reader-font-final-0816-20260821` passed full 256-test unit suite and both APK variants. MuMu reader font-change smoke passed; details in `docs/reader/`.
+- Public GitHub Release `v0.8.16+79` is published as `Latest` at `https://github.com/iCarus-Heeya/lovely-camp-releases/releases/tag/v0.8.16%2B79`. Its updater-compatible asset is `lovely-camp-v0.8.16.apk` at the release download URL, with GitHub SHA-256 `f036e89ef431957da2c3ff38cf211ea44941acdafadf4e039964c6a711370dda` matching the local artifact. Automatic update discovery can now move beyond the `v0.8.13+76` baseline; device-side download/install acceptance remains open. Details: `docs/update/release-0.8.16-github-upload.md`.
+
+## Latest Update: 2026-08-21 — book-download speed, progress and background optimization
+
+- Audit and durable collaboration records are in `docs/download/`, including PRD, architecture,
+  detailed design, decision log, bug experience, test matrix and release record.
+- The selected capability-bearing result is attempted before alternative-source search; failover
+  remains available only after the selected result fails.
+- `HttpTextClient` and all supported novel sources now expose streaming byte callbacks. Progress
+  carries bytes, speed and ETA in addition to chapter counts; the shelf shows these details.
+- Book downloads now use a unique WorkManager `CoroutineWorker` with connected-network constraint,
+  exponential retry, foreground notification, persisted WorkInfo progress and chapter checkpoints.
+  Persistence merges only the target book state so background work cannot overwrite other user edits.
+- Worker progress/notification writes are throttled to about 350ms while chapter checkpoints and
+  terminal states flush immediately, preventing progress UI from becoming the network bottleneck.
+- Fresh ASCII full `testDebugUnitTest` for this source state passed with `BUILD SUCCESSFUL`. MuMu
+  and physical-device background/download evidence is still required before calling the release
+  candidate complete; real-source bandwidth and access limits remain explicitly unverified.
+
+## Latest Release Candidate: 2026-08-21 Version 0.8.15 - download experience optimization
+
+- VersionCode `78`, versionName `0.8.15`, package `com.lovelyreader`, label `老婆的小营地`.
+- Release artifact: root `老婆的小营地-v0.8.15.apk` (also `app-release.apk` and
+  `outputs\apk\release\app-release.apk`), SHA-256
+  `AD03A865D2CF06CD4F059E4F5B2A770887EE21355166A014031CD6004AEC2D74`.
+- Debug artifact: root `老婆的小营地-debug-v0.8.15.apk` (also `app-debug.apk` and
+  `outputs\apk\debug\app-debug.apk`), SHA-256
+  `82A5551DE3B5E15FB224BDADD50E1C34F9EAA114F103432796FD88E16348B60B`.
+- Fresh ASCII build `C:\Users\iCarus\.codex\visualizations\2026\08\11\019fee72-6da6-7d02-a4c8-5e5a3c49c39d\lovely-download-final-0815-20260821` passed full 255-test unit suite (0 failures/errors, 8 skipped), `assembleRelease`, and `assembleDebug`.
+- MuMu instance 3 (`127.0.0.1:16480`) installed release and passed cold start, source search, shelf add, WorkManager progress (10% to completion), background notification while app was at launcher, reopen with persisted book, and no FATAL/ANR. Physical-device and diverse real-source performance acceptance remains open.
+- Detailed implementation and evidence: `docs/download/PRD.md`, `architecture.md`,
+  `detailed-design.md`, `bug-experience.md`, `test-matrix.md`, and `release-record.md`.
+
+## Latest Release Candidate: 2026-08-20 Version 0.8.14 - discovery category delivery
+
+- VersionCode `77`, versionName `0.8.14`, package `com.lovelyreader`, label `老婆的小营地`.
+- Signed APKs were built from the current source in the fresh ASCII copy `C:\Users\iCarus\.codex\visualizations\2026\08\11\019fee72-6da6-7d02-a4c8-5e5a3c49c39d\lovely-discovery-release-0814-20260820-r1`.
+- Delivery copies: root `老婆的小营地-v0.8.14.apk`, root `app-release.apk`, and `outputs\apk\release\app-release.apk`; SHA-256 `8007260CD36CE11B2D868669366B263DA2EE6F49EC1D0269A0FCD50C2B8E065B`, 20,455,475 bytes.
+- Fresh full `testDebugUnitTest` passed with 249 tests, 0 failures, 0 errors, 8 ignored; `assembleRelease` passed with 49 actionable tasks. APK v2 signature and package metadata were verified.
+- Discovery changes include exact romance subcategories, finite source-category tour, pending seen-state recheck, truthful homepage/category parser failures, and non-misleading Chinese copy. Details are in `docs/discovery/` and `docs/release-readiness.md`.
+- MuMu Android 12 instance index `3` (`代练（好搜索）`, ADB `127.0.0.1:16480`) installed this APK and passed the discovery smoke flow: romance subcategory horizontal scrolling, `宫闱情仇` category loading, and Android Back to bookshelf. Full source/playback/Cast/download device acceptance remains open. Evidence is recorded in `docs/release-readiness.md`.
+- The public update baseline remains `v0.8.13+76`; this candidate has not been uploaded as a GitHub Release.
+
+## Latest Source Update: 2026-08-20 - pending discovery rechecks current seen state
+
+- `DiscoveryCoordinator` now passes the current repository seen-title/seen-book identities into the pending fast path. `DiscoveryRotation` prunes pending candidates and rejects newly-seen candidates immediately before selection, so a book read or added to the shelf after candidate generation cannot appear in the next batch.
+- TDD evidence: `C:\Users\iCarus\.codex\visualizations\2026\08\11\019fee72-6da6-7d02-a4c8-5e5a3c49c39d\pending-seen-red-20260820` first failed the new `pendingFastPathRechecksCurrentSeenTitlesBeforeReturningNextBatch` regression test, then passed the targeted test and the complete `DiscoveryCatalogTest` suite after the minimal fix. No APK was built and no emulator acceptance is claimed.
+
+## Latest Source Update: 2026-08-20 - homepage featured parser truthfulness correction
+
+- `QinkanSource.homepageFeatured()`, `QisuwangSource.homepageFeatured()` and `ZxcsSource.homepageFeatured()` no longer wrap the generic `parseListPage()` empty result as a false success. Each homepage now validates its real list boundary (`listBox`, `imgtextlist`, or `mio-tile`) and returns explicit `CategoryBrowseResult.Failure` for verification pages, missing containers, or changed item structure.
+- `looksLikeDiscoveryVerificationPage()` and `isExplicitlyEmptyDiscoveryPage()` centralize the distinction between an interstitial/changed page and a genuinely empty result. A real empty container or explicit provider empty-state message is the only allowed `Success(empty)`.
+- Category parsers now reject verification pages before parsing, keeping homepage and category state semantics aligned. Targeted tests in `C:\Users\iCarus\.codex\visualizations\2026\08\11\019fee72-6da6-7d02-a4c8-5e5a3c49c39d\lovely-homepage-parser-red-20260820` passed: Qinkan 14, Qisuwang 13, Zxcs 9, zero failures/errors. This was a source-only correction; no APK was built and no emulator acceptance is claimed.
+
+## Historical Source Update: 2026-08-19 - discovery categories and non-repeating browse
+
+- The bookshelf discovery screen now has primary categories for curated lists and random browse. Romance expands into eight verified Qinkan subcategories: 现代言情、古代言情、穿越架空、宫闱情仇、浪漫言情、菁菁校园、爱在职场、耽美纯爱. 科幻世界 and 灵异神怪 remain separate primary categories.
+- Discovery uses honest `来源首页精选 / 分类精选` labels; month/year/total chips were removed because the public pages do not establish those time-ranking semantics. The old ranking enum remains only for compatibility.
+- `BrowsableNovelSource.categoryBrowse` returns explicit unsupported/success/failure and pagination state. Qinkan and Qisuwang only map exact public category paths; unknown or approximate categories never fall back to `/npyq/` or `/yanqing/`.
+- Qinkan category parsing is scoped to the real `listBox/tspage` containers; Qisuwang requires `imgtextlist/pages`. Verification or structurally malformed pages are failures, not empty results.
+- `全部` is a finite source-category tour: one real first-page category request per source per batch, each source stops after its final verified column, and no fictitious second page or wraparound is created.
+- `DiscoveryCoordinator` keeps independent page cursors per category/source plus pending and displayed identity buffers. Unselected candidates are consumed before another page is fetched. Only successful sources with another page advance. Failure, exhaustion and stale requests do not reset or mutate history; users explicitly choose `重新开始` after exhaustion.
+- Identity uses normalized title plus author compatibility: same non-empty author merges, one missing author may merge cautiously, and two different non-empty authors remain distinct. Repository seen-title filtering still uses normalized titles because persisted seen history has no author field.
+- Final review also prevents stale pending consumption, remembers exhausted/unsupported source-category endpoints, removes the obsolete provider `randomBrowse` API, keeps pagination inside the verified list container, and preserves same-title books with different known authors. Fresh ASCII full `testDebugUnitTest` passed in `C:\CodexTemp\lovely-discovery-final-full-20260819` (`BUILD SUCCESSFUL in 3m 33s`, 23 tasks). Emulator acceptance and a signed APK remain pending, so this is not a release record.
+
+## Historical Update: 2026-08-18 Version 0.8.13 - automatic update discovery and source safety
+
+> Historical snapshot captured before the public release was created. The later 2026-08-18 release-baseline entry below is the current release truth; this section is retained as evidence of the pre-release state.
 
 - Signed release APKs at root `老婆的小营地-v0.8.13.apk`, root `app-release.apk`, and `outputs\apk\release\app-release.apk` are all package `com.lovelyreader`, versionCode `76`/versionName `0.8.13`, v2 signed (one signer), SHA-256 `39738992F26221B316EB0F4F1AE2E6B79B6E48C8722A542400D835FED76CEEF4`.
 - App cold-starts now automatically check the public GitHub latest Release once per 24 hours only when Android reports validated Wi-Fi or Ethernet; automatic checks fail silently and never use mobile data. A discovered version produces an update prompt; download integrity and system-installer consent remain unchanged. Manual Settings checks bypass the network/interval policy.
 - Fresh ASCII copy `C:\CodexTemp\lovely-auto-update-secure-final-20260818` ran `testDebugUnitTest` successfully and `assembleRelease` successfully. No ADB target, Emulator binary, or AVD was available, so emulator verification is not claimed.
 - Public-source audit removed a hard-coded GitHub sync credential. User-supplied sync credentials continue to work; blank credentials disable sync. `.gitignore` excludes signing material, local SDK configuration and APK outputs. The release workflow now uses same-repository `GITHUB_TOKEN` rather than a cross-repository PAT.
-- Live GitHub check on 2026-08-18 showed the public `iCarus-Heeya/lovely-camp-releases` repository has no Releases. The client is ready but an online update cannot be discovered until the four signing Actions Secrets and tag `v0.8.13+76` create the first Release. See `docs/update/task-42-automatic-update-check.md` and `docs/update/release-0.8.13-automatic-update-check.md`.
+- Live GitHub check on 2026-08-18 showed the public `iCarus-Heeya/lovely-camp-releases` repository had no Releases at that moment. This was superseded later the same day by the manually uploaded `v0.8.13+76` release recorded below. See `docs/update/task-42-automatic-update-check.md` and `docs/update/release-0.8.13-automatic-update-check.md`.
 - Local source Git repository commit `54e1c58` is ready for that push. Local Git redirect sent GitHub traffic to a certificate-expired mirror and direct GitHub 443 was blocked; no TLS bypass was used. The in-app GitHub page is reachable but logged out, so no source/Secret upload is claimed.
 
 ## Latest Update: 2026-08-16 v0.8.11 trusted DNS bootstrap correction
@@ -534,3 +620,22 @@ Last known verified release state:
 - MuMu Android 12 (`22041211A`, adb `127.0.0.1:16384`) was used for actual install/search/navigation acceptance. Real `九门` search rendered the current CDN covers plus the source actor, year/region and update information. Detail opened with sources/episodes.
 - Simulated Android Back initially revealed two actual regressions: Detail could exit the app because no Compose BackHandler intercepted it, and the former local LazyColumn state reset results to top. `DramaScreen` now owns a BackHandler and a hoisted remembered home LazyListState; verified Back returns to the same scrolled card position.
 - Verification: `C:\CodexTemp\lovely-reader-084-final`, full `testDebugUnitTest --no-daemon --offline --stacktrace --console=plain` passed in 1m12s (23 tasks), then release-signed Debug `assembleDebug` passed in 24s (36 tasks). Package v2 verified; SHA-256 `C6EAFF15432FECD2681ACD8E084AD9F2A1FC4F2DED45F54D4505C8A0F032FB5B`.
+
+## Latest Update: 2026-08-18 Version 0.8.13 - GitHub update baseline released
+
+- Public release: `https://github.com/iCarus-Heeya/lovely-camp-releases/releases/tag/v0.8.13`.
+- Release asset: `lovely-camp-v0.8.13.apk`, versionCode `76`, versionName `0.8.13`, SHA-256 `39738992F26221B316EB0F4F1AE2E6B79B6E48C8722A542400D835FED76CEEF4`.
+- The installed 0.8.13 client checks GitHub `latest` on cold start at most once per 24 hours on validated Wi-Fi/Ethernet and asks the user before download/install; mobile data remains manual check only.
+- Full offline unit test and release build succeeded in `C:\CodexTemp\lovely-auto-update-secure-final-20260818`; APK v2 signature and package metadata were verified. No ADB emulator/device was available for install-flow acceptance.
+- This first online release was manually uploaded through the authenticated GitHub UI. Complete source/workflow push and Actions-based automatic publishing remain open because this machine's Git HTTP route cannot reach GitHub without an unsafe TLS bypass; no signing Secrets have been uploaded.
+- The first manually typed bare tag `v0.8.13` was rejected by the client as designed because the release protocol requires a version code. It was superseded as Latest by `v0.8.13+76` using the identical signed APK and SHA-256. Do not publish bare `v<versionName>` tags; all future releases must use `v<versionName>+<versionCode>`.
+
+## Latest Update: 2026-08-21 High-fidelity UI implementation in progress
+
+- Design source: `docs/ui/concepts-20260821` contains the 9:16 high-fidelity screens; implementation rules are recorded in `docs/superpowers/specs/2026-08-21-high-fidelity-implementation-design.md` and `docs/superpowers/plans/2026-08-21-high-fidelity-implementation-plan.md`.
+- Implemented: public HTTPS book cover loader with fallback, search/detail/shelf cover wiring, search-to-detail drama metadata merge, stable GitHub release history parser/API, shared ink-wash paper background for normal pages, and ordinary-settings removal of sync credential UI.
+- Update history deliberately shows every stable release returned by GitHub, including intermediate versions; user-facing notes filter APK/SHA-256/build/test lines.
+- Unit evidence: ASCII copy `C:\CodexTemp\lovely-high-fidelity-20260821-run2`; targeted suite passed (23 tests) for cover policy, metadata merge, update history, settings presentation and drama view model. Source `:app:compileDebugKotlin --offline` passed.
+- Final evidence: ASCII copy `C:\CodexTemp\lovely-high-fidelity-20260821-run3` full `testDebugUnitTest --no-daemon --offline --stacktrace --console=plain` passed; `assembleDebug assembleRelease` passed. Canonical handoff APKs are copied to the project root (`老婆的小营地-v0.8.16-debug.apk` and `老婆的小营地-v0.8.16-release.apk`); `artifacts/high-fidelity-20260821/` keeps archive copies. SHA-256 is recorded in `docs/ui/release-record.md`.
+- MuMu Android 12 serial `127.0.0.1:16416` installed the final Debug APK. Screenshots verified the shared paper shell, real `南部档案` poster/metadata, source selector, episode grid, player video frame, settings version history, and system Back from player to detail. No crash/ANR observed. First book search took about 30 seconds on the emulator before returning 20 results; keep this as a network-latency limitation rather than claiming instant loading.
+- Any unresolved device or live-site issue remains a limitation in `docs/ui/release-record.md`; nothing from this project belongs in worklog/timesheet/reporting.

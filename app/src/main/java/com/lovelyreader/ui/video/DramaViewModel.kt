@@ -13,6 +13,7 @@ import com.lovelyreader.video.VideoSiteRoot
 import com.lovelyreader.video.VideoSource
 import com.lovelyreader.video.VideoTitle
 import com.lovelyreader.video.VideoTitleDetail
+import com.lovelyreader.video.mergeVideoTitleMetadata
 import com.lovelyreader.video.VideoEpisode
 import com.lovelyreader.video.VideoMediaLink
 import com.lovelyreader.video.VideoRecentViewing
@@ -240,13 +241,17 @@ class DramaViewModel(
                 _selectedTitle.value = DramaDetailUiState(message = "暂时无法取得这部剧的播放源")
                 return@launch
             }
-            val orderedSources = library.orderSources(detail.title.id, detail.sources)
-            val orderedDetail = detail.copy(sources = orderedSources)
+            val searchTitle = _searchResults.value.results.firstOrNull { candidate ->
+                candidate.id == title.id || candidate.detailUrl == title.detailUrl
+            } ?: title
+            val mergedTitle = mergeVideoTitleMetadata(searchTitle, detail.title)
+            val orderedSources = library.orderSources(mergedTitle.id, detail.sources.map { it.copy(titleId = mergedTitle.id) })
+            val orderedDetail = detail.copy(title = mergedTitle, sources = orderedSources)
             _selectedTitle.value = DramaDetailUiState(detail = orderedDetail, message = "请选择播放源")
-            val selected = orderedSources.firstOrNull { it.id == library.selectedSourceId(detail.title.id) }
+            val selected = orderedSources.firstOrNull { it.id == library.selectedSourceId(mergedTitle.id) }
                 ?: orderedSources.firstOrNull()
             if (selected == null) {
-                _selectedTitle.value = DramaDetailUiState(detail = detail, message = "这部剧暂未提供可用播放源")
+                _selectedTitle.value = DramaDetailUiState(detail = orderedDetail, message = "这部剧暂未提供可用播放源")
             } else {
                 selectSource(selected)
             }

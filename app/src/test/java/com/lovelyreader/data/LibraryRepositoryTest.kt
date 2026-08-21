@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.lovelyreader.source.NormalizedBookIdentity
 
 class LibraryRepositoryTest {
     @Test
@@ -51,6 +52,20 @@ class LibraryRepositoryTest {
         repository.markSeenTitle("偷偷藏不住")
 
         assertTrue("偷偷藏不住" in repository.seenTitles())
+    }
+
+    @Test
+    fun persistsSeenBookIdentityWithoutCollapsingDifferentAuthors() {
+        val original = LibraryRepository()
+        original.markSeenBook("同名书", "甲")
+        original.markSeenBook("同名书", "乙")
+
+        val restored = LibraryRepository().also { it.restore(original.snapshot()) }
+
+        assertEquals(
+            setOf(NormalizedBookIdentity("同名书", "甲"), NormalizedBookIdentity("同名书", "乙")),
+            restored.seenBookIdentities().toSet()
+        )
     }
 
     @Test

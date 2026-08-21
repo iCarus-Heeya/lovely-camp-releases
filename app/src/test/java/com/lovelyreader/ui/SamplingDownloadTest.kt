@@ -3,8 +3,9 @@ package com.lovelyreader.ui
 import com.lovelyreader.data.LibraryRepository
 import com.lovelyreader.domain.RankingPeriod
 import com.lovelyreader.domain.SearchResult
-import com.lovelyreader.domain.SizeBand
 import com.lovelyreader.source.BrowsableNovelSource
+import com.lovelyreader.source.CategoryBrowseResult
+import com.lovelyreader.source.DiscoveryCatalog
 import com.lovelyreader.source.HttpTextClient
 import com.lovelyreader.source.IjjxsSource
 import com.lovelyreader.source.IxdzsSource
@@ -25,7 +26,7 @@ class SamplingDownloadTest {
     @Ignore("Live network diagnostic; run manually only.")
     fun rankingTotalBooksCanBeDownloaded() = runBlocking {
         val period = RankingPeriod.TOTAL
-        println("\n=== 获取排行榜总榜 ===")
+        println("\n=== 获取来源精选 ===")
         val rankingResults = sources
             .filterIsInstance<BrowsableNovelSource>()
             .flatMap { source ->
@@ -33,7 +34,7 @@ class SamplingDownloadTest {
             }
             .let { SearchResultMerger.merge(it) }
 
-        println("排行榜总榜共 ${rankingResults.size} 本")
+        println("来源精选共 ${rankingResults.size} 本")
         rankingResults.forEachIndexed { index, result ->
             println("  [${index + 1}] ${result.title} / ${result.author} [${result.sourceId}]")
         }
@@ -45,7 +46,7 @@ class SamplingDownloadTest {
 
         val successCount = results.count { it.success }
         val failureCount = results.size - successCount
-        println("\n=== 排行榜总榜下载抽查结果 ===")
+        println("\n=== 来源精选下载抽查结果 ===")
         println("总数：${results.size}")
         println("成功：$successCount")
         println("失败：$failureCount")
@@ -53,7 +54,7 @@ class SamplingDownloadTest {
             println("  失败：${it.title} / ${it.author} [${it.sourceId}] - ${it.error}")
         }
 
-        assertTrue("排行榜总榜有 $failureCount 本下载失败", failureCount == 0)
+        assertTrue("来源精选有 $failureCount 本下载失败", failureCount == 0)
     }
 
     @Test(timeout = 1_800_000)
@@ -61,10 +62,7 @@ class SamplingDownloadTest {
     fun randomTwentyUniqueBooksCanBeDownloaded() = runBlocking {
         println("\n=== 随机选取 20 本不重复的书 ===")
         val randomBooks = mutableListOf<SearchResult>()
-        val categories = listOf(
-            "全部", "现言甜宠", "都市职场", "青春校园", "古言宫斗",
-            "穿越重生", "年代种田", "仙侠奇缘", "悬疑推理"
-        )
+        val categories = listOf("全部") + DiscoveryCatalog.primaryCategories + DiscoveryCatalog.romanceCategories
         val maxAttempts = 30
         var attempts = 0
         while (randomBooks.size < 20 && attempts < maxAttempts) {
@@ -74,8 +72,8 @@ class SamplingDownloadTest {
                 .filterIsInstance<BrowsableNovelSource>()
                 .flatMap { source ->
                     runCatching {
-                        source.randomBrowse(category, false, SizeBand("all", 0, 999_999))
-                    }.getOrDefault(emptyList())
+                        (source.categoryBrowse(category, page = 1) as? CategoryBrowseResult.Success)?.items.orEmpty()
+                    }.getOrDefault(emptyList<SearchResult>())
                 }
                 .let { SearchResultMerger.merge(it) }
             results.forEach { result ->
@@ -112,9 +110,9 @@ class SamplingDownloadTest {
         val title = "凡人修仙传"
         println("\n=== 诊断 zxcs《$title》===")
         val ranking = runCatching { source.ranking(RankingPeriod.TOTAL) }.getOrDefault(emptyList())
-        println("  排行榜数量：${ranking.size}")
+        println("  来源精选数量：${ranking.size}")
         val match = ranking.firstOrNull { it.title.contains(title) || title.contains(it.title) }
-            ?: return@runBlocking println("  未在排行榜找到")
+            ?: return@runBlocking println("  未在来源精选找到")
         println("  选中：${match.title} / ${match.author} -> ${match.bookUrl}")
         val chapters = runCatching { source.getChapterList(match.bookUrl) }.getOrDefault(emptyList())
         println("  章节：${chapters.size}")

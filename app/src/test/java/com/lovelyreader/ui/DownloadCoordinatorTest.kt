@@ -32,6 +32,56 @@ import org.junit.Test
 
 class DownloadCoordinatorTest {
     @Test
+    fun progressReportCarriesTransferMetricsForRealtimeUi() {
+        val report = DownloadProgressReport(
+            percent = 42,
+            message = "正在下载 TXT 全文",
+            downloadedChapters = 0,
+            totalChapters = 1,
+            downloadedBytes = 4_200,
+            totalBytes = 10_000,
+            speedBytesPerSecond = 1_400,
+            etaSeconds = 4
+        )
+
+        assertEquals(4_200, report.downloadedBytes)
+        assertEquals(10_000, report.totalBytes)
+        assertEquals(1_400, report.speedBytesPerSecond)
+        assertEquals(4L, report.etaSeconds)
+    }
+
+    @Test
+    fun txtDownloadEmitsByteProgressWhileContentIsBeingRead() = runTest {
+        val progress = mutableListOf<DownloadProgressReport>()
+        val source = FakeNovelSource(
+            sourceId = "progress-txt",
+            capabilities = setOf(SourceCapability.TXT_IMPORT),
+            chapters = listOf(Chapter("全文TXT", "txt-file", 0)),
+            content = "可读正文。".repeat(200),
+            progressReadBytes = 4_200,
+            progressTotalBytes = 10_000
+        )
+
+        val result = listOf(source).downloadBookWithFallback(
+            bookId = "progress-book",
+            initialResult = SearchResult(
+                sourceId = "progress-txt",
+                title = "进度测试",
+                author = "测试",
+                bookUrl = "progress-book-url",
+                capabilities = setOf(SourceCapability.TXT_IMPORT)
+            ),
+            bookTitle = "进度测试",
+            author = "测试",
+            repository = LibraryRepository(),
+            onProgress = { progress += it }
+        )
+
+        assertNotNull(result)
+        assertTrue(progress.any { it.downloadedBytes == 4_200L && it.totalBytes == 10_000L })
+    }
+
+    @Test
     fun `book download work runs on its injected background dispatcher`() = runBlocking {
         val dispatcher = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "book-download-worker")
@@ -156,6 +206,48 @@ class DownloadCoordinatorTest {
         )
 
         assertEquals("good-url", result?.first?.bookUrl)
+    }
+
+    @Test
+    fun triesSelectedSourceBeforeSearchingAlternatives() = runTest {
+        val primary = FakeNovelSource(
+            sourceId = "primary",
+            capabilities = setOf(SourceCapability.TXT_IMPORT),
+            chapters = listOf(Chapter("全文TXT", "primary-txt", 0)),
+            content = "主来源已经提供完整正文，应该先直接开始下载。".repeat(20)
+        )
+        val alternative = FakeNovelSource(
+            sourceId = "alternative",
+            capabilities = setOf(SourceCapability.TXT_IMPORT),
+            searchResults = listOf(
+                SearchResult(
+                    sourceId = "alternative",
+                    title = "先试主来源",
+                    author = "测试",
+                    bookUrl = "alternative-book",
+                    capabilities = setOf(SourceCapability.TXT_IMPORT)
+                )
+            )
+        )
+
+        val result = listOf(primary, alternative).downloadBookWithFallback(
+            bookId = "primary-first",
+            initialResult = SearchResult(
+                sourceId = "primary",
+                title = "先试主来源",
+                author = "测试",
+                bookUrl = "primary-book",
+                capabilities = setOf(SourceCapability.TXT_IMPORT)
+            ),
+            bookTitle = "先试主来源",
+            author = "测试",
+            repository = LibraryRepository(),
+            onProgress = { }
+        )
+
+        assertNotNull(result)
+        assertEquals("primary", result?.first?.sourceId)
+        assertEquals(0, alternative.searchCalls)
     }
 
     @Test
@@ -409,14 +501,18 @@ private class FakeNovelSource(
     private val chaptersByBookUrl: Map<String, List<Chapter>> = emptyMap(),
     private val content: String = "第一章\n\n这是可以离线阅读的正文，下载以后不会卡在固定进度。",
     private val delayMillis: Long = 0,
+    private val progressReadBytes: Long = 0L,
+    private val progressTotalBytes: Long = 0L,
     private val onOperation: () -> Unit = {}
 ) : NovelSource {
     var contentAttempts: Int = 0
+    var searchCalls: Int = 0
 
     override val displayName: String = sourceId
     override val baseUrl: String = "https://example.com/$sourceId"
 
     override suspend fun search(query: String): List<SearchResult> {
+        searchCalls++
         onOperation()
         if (delayMillis > 0) delay(delayMillis)
         return searchResults
@@ -435,6 +531,16 @@ private class FakeNovelSource(
         contentAttempts += 1
         if (delayMillis > 0) delay(delayMillis)
         return ChapterContent("正文", chapterUrl, content)
+    }
+
+    override suspend fun getChapterContentWithProgress(
+        chapterUrl: String,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
+    ): ChapterContent? {
+        if (progressTotalBytes > 0L) {
+            onProgress(progressReadBytes, progressTotalBytes)
+        }
+        return getChapterContent(chapterUrl)
     }
 
     override suspend fun getDownloadOptions(bookUrl: String): List<DownloadOption> = emptyList()

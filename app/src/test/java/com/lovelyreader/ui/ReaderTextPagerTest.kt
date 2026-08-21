@@ -46,4 +46,14 @@ class ReaderTextPagerTest {
         assertEquals(1f, readerProgress(pagesSize = 3, index = 5, offset = 0, itemHeight = null), 0.001f)
         assertEquals(0f, readerProgress(pagesSize = 0, index = 0, offset = 0, itemHeight = null), 0.001f)
     }
+
+    @Test
+    fun fontSizeChangeMapsSavedProgressToTheNewPageCount() {
+        // A font change repaginates the same chapter. The reader must restore
+        // the nearest equivalent page instead of jumping back to page zero.
+        assertEquals(4, readerPageForProgress(progress = 0.5f, pagesSize = 9))
+        assertEquals(0, readerPageForProgress(progress = -1f, pagesSize = 9))
+        assertEquals(8, readerPageForProgress(progress = 2f, pagesSize = 9))
+        assertEquals(0, readerPageForProgress(progress = 0.5f, pagesSize = 1))
+    }
 }

@@ -98,9 +98,9 @@ data class SourceHealth(
 )
 
 enum class RankingPeriod(val label: String) {
-    MONTH("月榜"),
-    YEAR("年榜"),
-    TOTAL("总榜")
+    MONTH("来源首页精选"),
+    YEAR("来源首页精选"),
+    TOTAL("来源首页精选")
 }
 
 data class SizeBand(

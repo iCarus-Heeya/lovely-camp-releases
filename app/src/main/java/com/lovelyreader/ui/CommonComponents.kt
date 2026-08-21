@@ -106,7 +106,7 @@ fun <T> SegmentedTextButtons(
 }
 
 @Composable
-fun FilterChipText(text: String, selected: Boolean, onClick: () -> Unit) {
+fun FilterChipText(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val containerColor by animateColorAsState(
         targetValue = if (selected) appColors().blush.copy(alpha = 0.85f) else appColors().warmWhite,
         label = "chipContainer"
@@ -117,6 +117,7 @@ fun FilterChipText(text: String, selected: Boolean, onClick: () -> Unit) {
     )
     TextButton(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, if (selected) appColors().blush.copy(alpha = 0.5f) else appColors().lineColor),
         colors = ButtonDefaults.textButtonColors(

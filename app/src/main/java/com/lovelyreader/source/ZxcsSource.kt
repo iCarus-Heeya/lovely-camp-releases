@@ -8,13 +8,16 @@ import com.lovelyreader.domain.ChapterContent
 import com.lovelyreader.domain.DownloadOption
 import com.lovelyreader.domain.RankingPeriod
 import com.lovelyreader.domain.SearchResult
-import com.lovelyreader.domain.SizeBand
 import com.lovelyreader.domain.SourceCapability
 import com.lovelyreader.domain.SourceHealth
 import java.net.URI
 
 class ZxcsSource(
-    private val http: HttpTextClient = HttpTextClient(readTimeoutMillis = 180_000)
+    private val http: HttpTextClient = HttpTextClient(readTimeoutMillis = 180_000),
+    private val discoveryHttp: HttpTextClient = HttpTextClient(
+        connectTimeoutMillis = 6_000,
+        readTimeoutMillis = 8_000
+    )
 ) : NovelSource, BrowsableNovelSource {
     override val sourceId: String = "zxcs"
     override val displayName: String = "知轩藏书"
@@ -58,14 +61,20 @@ class ZxcsSource(
         return listOf(Chapter(title = "全文TXT", url = allowedUrl, order = 0))
     }
 
-    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? {
+    override suspend fun getChapterContent(chapterUrl: String): ChapterContent? =
+        getChapterContentWithProgress(chapterUrl) { _, _ -> }
+
+    override suspend fun getChapterContentWithProgress(
+        chapterUrl: String,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
+    ): ChapterContent? {
         val allowedUrl = safety.requireAllowed(chapterUrl)
         val html = http.get(allowedUrl, safety)
         val option = parseDownloadOptions(html).firstOrNull { it.allowed } ?: return null
         return ChapterContent(
             title = parseBookTitleAuthor(html).first.ifBlank { "全文TXT" },
             url = option.url,
-            content = http.get(option.url, referer = allowedUrl).trim()
+            content = http.getWithProgress(option.url, referer = allowedUrl, onProgress = onProgress).trim()
                 .takeIf(SourceContentGuard::isReadableNovelText)
                 ?: return null
         )
@@ -86,13 +95,20 @@ class ZxcsSource(
         return parseListPage(http.get(rankingUrl(period), safety)).take(30)
     }
 
-    override suspend fun randomBrowse(category: String, finishedOnly: Boolean, sizeBand: SizeBand): List<SearchResult> {
-        if (category != "全部") return emptyList()
-        return searchableUrls
-            .flatMap { url -> runCatching { parseListPage(http.get(url, safety)) }.getOrDefault(emptyList()) }
-            .shuffled()
-            .take(12)
+    override suspend fun homepageFeatured(): CategoryBrowseResult = safeCategoryBrowse(10_000) {
+        parseHomepagePage(discoveryHttp.get("$baseUrl/", safety))
     }
+
+    override suspend fun categoryBrowse(category: String, page: Int): CategoryBrowseResult {
+        if (category != "全部") return CategoryBrowseResult.Unsupported
+        if (page != 1) return CategoryBrowseResult.Success(emptyList(), hasMore = false)
+        val url = "$baseUrl/"
+        return safeCategoryBrowse(8_000) {
+            parseHomepagePage(discoveryHttp.get(url, safety))
+        }
+    }
+
+    fun discoveryTimeoutConfiguration(): HttpTimeoutConfiguration = discoveryHttp.timeoutConfiguration()
 
     fun rankingUrl(period: RankingPeriod): String {
         return when (period) {
@@ -129,6 +145,32 @@ class ZxcsSource(
             }
             .filter { safety.isAllowed(it.bookUrl) }
             .distinctBy { it.bookUrl }
+    }
+
+    /** Parses only homepage tile elements, preserving challenge/structure failures. */
+    fun parseHomepagePage(html: String): CategoryBrowseResult {
+        if (looksLikeDiscoveryVerificationPage(html)) {
+            return CategoryBrowseResult.Failure("首页返回验证页面")
+        }
+        if (isExplicitlyEmptyDiscoveryPage(html)) {
+            return CategoryBrowseResult.Success(emptyList(), hasMore = false)
+        }
+        val rawTiles = Regex("<mio-tile\\b[^>]*>([\\s\\S]*?)</mio-tile>", RegexOption.IGNORE_CASE)
+            .findAll(html)
+            .map { it.value }
+            .toList()
+        if (rawTiles.isEmpty()) {
+            return CategoryBrowseResult.Failure("首页精选卡片结构已变化")
+        }
+        val items = parseListPage(rawTiles.joinToString("\n"))
+        if (items.isEmpty()) {
+            return CategoryBrowseResult.Failure("首页精选条目结构已变化")
+        }
+        return CategoryBrowseResult.Success(
+            items = items.take(30),
+            hasMore = false,
+            partialFailure = items.size < rawTiles.size
+        )
     }
 
     fun parseBookDetail(url: String, html: String): BookDetail {

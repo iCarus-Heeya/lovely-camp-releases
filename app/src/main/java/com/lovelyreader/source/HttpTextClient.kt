@@ -10,6 +10,8 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.Charset
 
+data class HttpTimeoutConfiguration(val connectMillis: Int, val readMillis: Int)
+
 class HttpTextClient(
     private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 LovelyReader/0.1",
     private val minimumIntervalMillis: Long = 1_200,
@@ -19,8 +21,25 @@ class HttpTextClient(
 ) {
     private var lastRequestAtMillis: Long = 0
 
+    fun timeoutConfiguration(): HttpTimeoutConfiguration =
+        HttpTimeoutConfiguration(connectTimeoutMillis, readTimeoutMillis)
+
     suspend fun get(url: String, safety: SourceSafety? = null, referer: String? = null): String =
         request(url, method = "GET", body = null, safety = safety, referer = referer)
+
+    suspend fun getWithProgress(
+        url: String,
+        safety: SourceSafety? = null,
+        referer: String? = null,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
+    ): String = request(
+        url,
+        method = "GET",
+        body = null,
+        safety = safety,
+        referer = referer,
+        onProgress = onProgress
+    )
 
     suspend fun postForm(url: String, fields: Map<String, String>, charsetName: String = "UTF-8"): String {
         val charset = Charset.forName(charsetName)
@@ -43,7 +62,8 @@ class HttpTextClient(
         contentType: String? = null,
         safety: SourceSafety? = null,
         challengeDepth: Int = 0,
-        referer: String? = null
+        referer: String? = null,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> }
     ): String = withContext(Dispatchers.IO) {
         waitForPoliteInterval()
         val connection = openConnection(url, method, body, contentType, referer)
@@ -60,7 +80,16 @@ class HttpTextClient(
                     safety = safety ?: SourceSafety(url)
                 ).getOrThrow()
                 connection.disconnect()
-                return@withContext request(nextUrl, method = "GET", body = null, contentType = null, safety = safety, challengeDepth = challengeDepth, referer = referer)
+                return@withContext request(
+                    nextUrl,
+                    method = "GET",
+                    body = null,
+                    contentType = null,
+                    safety = safety,
+                    challengeDepth = challengeDepth,
+                    referer = referer,
+                    onProgress = onProgress
+                )
             }
             val stream = if (responseCode >= 400) {
                 connection.errorStream ?: connection.inputStream
@@ -69,12 +98,22 @@ class HttpTextClient(
             }
             val bytes = stream.use { input ->
                 val output = ByteArrayOutputStream()
-                input.copyTo(output)
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var readBytes = 0L
+                val totalBytes = connection.contentLengthLong.takeIf { it >= 0L }
+                onProgress(0L, totalBytes)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    readBytes += count
+                    onProgress(readBytes, totalBytes)
+                }
                 output.toByteArray()
             }
             val text = decodeText(connection.contentType, bytes)
             if (challengeDepth < 2) {
-                followJsChallengeIfNeeded(url, text, safety, challengeDepth + 1) ?: text
+            followJsChallengeIfNeeded(url, text, safety, challengeDepth + 1, onProgress) ?: text
             } else {
                 text
             }
@@ -87,7 +126,8 @@ class HttpTextClient(
         url: String,
         text: String,
         safety: SourceSafety?,
-        nextDepth: Int
+        nextDepth: Int,
+        onProgress: suspend (readBytes: Long, totalBytes: Long?) -> Unit
     ): String? {
         if (!looksLikeJsChallenge(text)) return null
         val token = Regex("let token = \"([^\"]+)\"").find(text)?.groupValues?.get(1)
@@ -99,7 +139,15 @@ class HttpTextClient(
                 safety = safety ?: SourceSafety(url)
             ).getOrThrow()
         }.getOrNull() ?: return null
-        return request(nextUrl, method = "GET", body = null, contentType = null, safety = safety, challengeDepth = nextDepth)
+        return request(
+            nextUrl,
+            method = "GET",
+            body = null,
+            contentType = null,
+            safety = safety,
+            challengeDepth = nextDepth,
+            onProgress = onProgress
+        )
     }
 
     private fun looksLikeJsChallenge(text: String): Boolean {
