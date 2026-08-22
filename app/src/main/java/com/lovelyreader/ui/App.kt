@@ -311,7 +311,7 @@ fun LovelyReaderApp(
                 }
             },
             loadDetail = { viewModel.loadDetail(current.result) },
-            experienceSwitch = renderInlineExperienceSwitch,
+            experienceSwitch = renderExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
             )
         }

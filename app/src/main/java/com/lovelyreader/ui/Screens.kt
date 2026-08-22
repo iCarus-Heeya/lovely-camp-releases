@@ -416,7 +416,14 @@ fun SearchScreen(
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                placeholder = { Text("小说名或作者，支持模糊搜索") },
+                                placeholder = {
+                                    Text(
+                                        "小说名或作者，支持模糊搜索",
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontSize = 14.sp
+                                    )
+                                },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 shape = RoundedCornerShape(18.dp)
@@ -650,10 +657,18 @@ fun BookDetailScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
             ) {
             item {
+                if (highFidelityChromePlacement(BookPage.Detail) == HighFidelityChromePlacement.BelowHeader) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        experienceSwitch?.invoke()
+                    }
+                }
                 HighFidelityHeader(
                     title = "书籍详情",
                     onBack = onBack,
-                    trailing = experienceSwitch
+                    trailing = null
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -1403,12 +1418,18 @@ fun SettingsScreen(
                 HighFidelityUpdatePanel(
                     updateMessage = updateMessage,
                     updateAvailable = updateAvailable,
-                    updateHistory = updateHistory,
-                    updateHistoryMessage = updateHistoryMessage,
                     onCheckUpdate = onCheckUpdate,
                     onInstallUpdate = onInstallUpdate,
                     onLoadUpdateHistory = onLoadUpdateHistory
                 )
+            }
+            if (updateHistory.isNotEmpty() || updateHistoryMessage.isNotBlank()) {
+                item {
+                    VersionHistoryPanel(
+                        updateHistory = updateHistory,
+                        updateHistoryMessage = updateHistoryMessage
+                    )
+                }
             }
             item {
                 ThemeSettingsPanel(currentTheme = currentTheme, onThemeChanged = onThemeChanged)
@@ -1431,17 +1452,13 @@ private fun SettingsHeroHeader() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = highFidelitySettingsTitle(),
                 style = MaterialTheme.typography.displaySmall,
                 color = appColors().ink
             )
-            Text(
-                text = "把每次更新，安静地交给你确认",
-                style = MaterialTheme.typography.bodySmall,
-                color = appColors().softGray
-            )
+            Text("❀", color = appColors().roseBeige, fontSize = 34.sp)
         }
         Icon(
             imageVector = Icons.Outlined.Settings,
@@ -1456,8 +1473,6 @@ private fun SettingsHeroHeader() {
 private fun HighFidelityUpdatePanel(
     updateMessage: String,
     updateAvailable: com.lovelyreader.update.UpdateManifest?,
-    updateHistory: List<UpdateHistoryEntry>,
-    updateHistoryMessage: String,
     onCheckUpdate: () -> Unit,
     onInstallUpdate: (com.lovelyreader.update.UpdateManifest) -> Unit,
     onLoadUpdateHistory: () -> Unit
@@ -1473,12 +1488,7 @@ private fun HighFidelityUpdatePanel(
             )
             Text("应用更新", style = MaterialTheme.typography.headlineSmall, color = appColors().ink)
         }
-        Text(
-            highFidelityUpdateDescription(),
-            style = MaterialTheme.typography.bodyLarge,
-            color = appColors().cocoa.copy(alpha = .82f),
-            modifier = Modifier.padding(top = 2.dp)
-        )
+        Text(highFidelityUpdateDescription(), style = MaterialTheme.typography.bodyLarge, color = appColors().cocoa.copy(alpha = .82f), modifier = Modifier.padding(top = 2.dp))
         androidx.compose.material3.HorizontalDivider(
             modifier = Modifier.padding(vertical = 6.dp),
             color = appColors().lineColor
@@ -1530,30 +1540,34 @@ private fun HighFidelityUpdatePanel(
                 colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust, contentColor = Color.White)
             ) { Text(highFidelityUpdateActionLabel(manifest.versionName), fontSize = 17.sp, fontWeight = FontWeight.Medium) }
         }
-        if (updateMessage.isNotBlank() && updateAvailable != null) {
-            Text(updateMessage, style = MaterialTheme.typography.bodySmall, color = appColors().softGray)
-        }
+    }
+}
+
+@Composable
+private fun VersionHistoryPanel(
+    updateHistory: List<UpdateHistoryEntry>,
+    updateHistoryMessage: String
+) {
+    SoftPanel {
+        Text("版本记录", style = MaterialTheme.typography.titleLarge, color = appColors().ink)
         if (updateHistoryMessage.isNotBlank()) {
             Text(updateHistoryMessage, style = MaterialTheme.typography.bodySmall, color = appColors().softGray)
         }
-        if (updateHistory.isNotEmpty()) {
-            Text("版本记录", style = MaterialTheme.typography.titleMedium, color = appColors().ink, modifier = Modifier.padding(top = 4.dp))
-            updateHistory.forEach { entry ->
-                Surface(
-                    color = appColors().paper.copy(alpha = .76f),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, appColors().lineColor),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("v${entry.versionName}", fontWeight = FontWeight.SemiBold, color = appColors().ink)
-                            entry.publishedAt?.takeIf(String::isNotBlank)?.let {
-                                Text(formatUpdateDate(it), style = MaterialTheme.typography.bodySmall, color = appColors().softGray)
-                            }
+        updateHistory.forEach { entry ->
+            Surface(
+                color = appColors().paper.copy(alpha = .76f),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, appColors().lineColor),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("v${entry.versionName}", fontWeight = FontWeight.SemiBold, color = appColors().ink)
+                        entry.publishedAt?.takeIf(String::isNotBlank)?.let {
+                            Text(formatUpdateDate(it), style = MaterialTheme.typography.bodySmall, color = appColors().softGray)
                         }
-                        Text(highFidelityUserUpdateNotes(entry.notes), style = MaterialTheme.typography.bodyMedium, color = appColors().cocoa.copy(alpha = .76f))
                     }
+                    Text(highFidelityUserUpdateNotes(entry.notes), style = MaterialTheme.typography.bodyMedium, color = appColors().cocoa.copy(alpha = .76f))
                 }
             }
         }

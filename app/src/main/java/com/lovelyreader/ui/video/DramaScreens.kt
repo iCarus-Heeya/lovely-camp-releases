@@ -744,6 +744,7 @@ fun DramaPlayerScreen(
     val usesSitePlayer = effectiveMedia?.playbackMode == VideoPlaybackMode.SITE_PLAYER
     val castableMedia = effectiveMedia
     val castTarget = remember(castableMedia) { castMediaTarget(castableMedia) }
+    val playerLayout = com.lovelyreader.ui.highFidelityPlayerLayout()
     val castController = remember(context.applicationContext) {
         VideoCastController(context.applicationContext)
     }
@@ -798,7 +799,7 @@ fun DramaPlayerScreen(
     }
 
     Column(
-        modifier = modifier.fillMaxSize().background(Color(0xFF111111)),
+        modifier = modifier.fillMaxSize().background(if (playerLayout.darkSurface) Color(0xFF111111) else Color.Black),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         Row(

@@ -674,3 +674,12 @@ Last known verified release state:
 - MuMu `emulator-5554` Android 12, 720×1280 installed the final Debug package. UI tree confirms bookshelf “继续阅读”, reader `0.0%/进度`, and正文 bounds `[36,204][664,924]` separated from the reader chrome. Evidence is in `docs/ui/evidence/20260822-high-fidelity/`.
 - Second-round MuMu drama-home screenshot/UI tree (`final-drama-home-second-round.png` / `drama-home-second-round.xml`) confirms an empty recent-viewing state no longer renders a blank “继续收看” section.
 - Live drama detail/player/download remains a source-network limitation; no claim of real source-chain success is made from the empty-result emulator run.
+
+## Latest Update: 2026-08-22 User visual audit correction
+
+- The prior “all pages high-fidelity complete” conclusion was withdrawn after a same-device review showed that structure/function had been mistaken for 1:1 visual parity. See `docs/ui/bug-experience.md` record 13 and the current `docs/ui/test-matrix.md` audit table.
+- Current uncommitted fixes: `HighFidelityLayoutPolicy` now exposes settings/player visual contracts; settings separates update actions from version history and adds the concept rose mark; `InkWashBackground` adds shared leaves/blossoms/mountains/pavilion; search hint is single-line; detail experience switch is above the header row.
+- Fresh MuMu evidence is bound to the rebuilt Debug APK: `docs/ui/evidence/20260822-high-fidelity/fresh-installed.png`, `fresh-search-after-build.png`, `fresh-settings-visual-audit.png`. These are audit evidence, not a completion claim.
+- ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` targeted `HighFidelityLayoutPolicyTest` passes 5/5 after the RED/GREEN cycle. Source `compileDebugKotlin` passes.
+- Open gaps remain: real drama detail/player/download source-chain acceptance, a fully custom player control layer matching `video-player-v3`, and final 9:16 ratio mapping for every concept page. Do not label the next artifact “all pages 1:1” until the blocking visual matrix is green.
+- v0.8.18 artifacts are now built and copied to the project root: Debug SHA-256 `B851EF93DB30FC498F4001B488CA69A19AC6E49749F13E188FE8A297F79A306E`, Release SHA-256 `EC74DEFF1F279F2D3E218F40F9E02A7432E9A63B289CBEFC622A1D0E84EEA21B`; versionCode 81/versionName 0.8.18. ASCII full tests: 274/0 failures/0 errors/8 skipped. MuMu installed 0.8.18 and cold-start crash buffer was empty.

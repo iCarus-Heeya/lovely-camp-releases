@@ -11,7 +11,7 @@ class HighFidelityLayoutPolicyTest {
     fun `experience switch follows page specific concept placement`() {
         assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Shelf))
         assertEquals(HighFidelityChromePlacement.HeaderTrailing, highFidelityChromePlacement(BookPage.Search))
-        assertEquals(HighFidelityChromePlacement.HeaderTrailing, highFidelityChromePlacement(BookPage.Detail))
+        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Detail))
         assertEquals(HighFidelityChromePlacement.Hidden, highFidelityChromePlacement(BookPage.Reader))
     }
     @Test
@@ -50,5 +50,23 @@ class HighFidelityLayoutPolicyTest {
         assertTrue(layout.showsPaperDecoration)
         assertEquals(78, layout.readerContentTopInsetDp)
         assertEquals(144, layout.readerContentBottomInsetDp)
+    }
+
+    @Test
+    fun settingsKeepsUpdateActionsAndVersionHistoryVisuallySeparated() {
+        val layout = highFidelitySettingsLayout()
+
+        assertTrue(layout.showsRoseMark)
+        assertTrue(layout.showsUpdateCard)
+        assertTrue(layout.historyIsSeparateSection)
+    }
+
+    @Test
+    fun playerUsesConceptDarkChromeAndDedicatedControlSurface() {
+        val layout = highFidelityPlayerLayout()
+
+        assertTrue(layout.darkSurface)
+        assertTrue(layout.showsProgressAndFullscreenControls)
+        assertTrue(layout.showsSourceAndEpisodeSurface)
     }
 }
