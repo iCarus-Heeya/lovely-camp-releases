@@ -68,5 +68,6 @@ class HighFidelityLayoutPolicyTest {
         assertTrue(layout.darkSurface)
         assertTrue(layout.showsProgressAndFullscreenControls)
         assertTrue(layout.showsSourceAndEpisodeSurface)
+        assertTrue(layout.usesCustomControlSurface)
     }
 }

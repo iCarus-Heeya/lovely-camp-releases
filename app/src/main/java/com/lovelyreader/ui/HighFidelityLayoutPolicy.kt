@@ -81,13 +81,15 @@ fun highFidelitySettingsLayout(): HighFidelitySettingsLayout = HighFidelitySetti
 data class HighFidelityPlayerLayout(
     val darkSurface: Boolean,
     val showsProgressAndFullscreenControls: Boolean,
-    val showsSourceAndEpisodeSurface: Boolean
+    val showsSourceAndEpisodeSurface: Boolean,
+    val usesCustomControlSurface: Boolean = false
 )
 
 fun highFidelityPlayerLayout(): HighFidelityPlayerLayout = HighFidelityPlayerLayout(
     darkSurface = true,
     showsProgressAndFullscreenControls = true,
-    showsSourceAndEpisodeSurface = true
+    showsSourceAndEpisodeSurface = true,
+    usesCustomControlSurface = true
 )
 
 fun highFidelitySettingsTitle(): String = "应用更新"
