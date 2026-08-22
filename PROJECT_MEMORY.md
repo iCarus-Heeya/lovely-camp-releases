@@ -1,5 +1,15 @@
 # Project Memory
 
+## Latest Release Candidate: 2026-08-22 Version 0.8.19 - visual audit correction
+
+- VersionCode `82`, versionName `0.8.19`, package `com.lovelyreader`, label `老婆的小营地`.
+- This candidate is the response to the user's second visual audit. It does not reuse earlier screenshots: the Debug APK was freshly installed on MuMu Android 12 `emulator-5554` (720×1280, 9:16), then shelf, search, drama home, settings and player screenshots/UI trees were captured under `docs/ui/evidence/20260822-high-fidelity/v0.8.19-*`.
+- Layout fixes: bookshelf search entry is compact with calibrated spacing; book search uses a custom single-line input/button and stable recent-search placeholder; book detail receives a compact 112dp experience switch above the hero header; drama home keeps a single title/search/continue/results path; site-player WebView forces the provider player container to occupy the viewport and removes the blank top area; download list title includes the concept rose mark.
+- Build evidence: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` passed. ASCII copy `C:\CodexTemp\lovely-hf-visual-audit3-20260822` full `testDebugUnitTest` passed with 277 tests, 0 failures, 0 errors, 8 skipped. The Chinese-path targeted runner still reproduces the existing `ClassNotFoundException` initialization error; it is not treated as a product regression.
+- Root artifacts: `老婆的小营地-debug-v0.8.19.apk` SHA-256 `AE7DBDB3761ED6034B72E3E5DBB2A6DA7148E106C746D182B4512ACE87B2C48D`; `老婆的小营地-v0.8.19.apk` SHA-256 `E8DFCF6A1A00709BE7AF62718BE3D5F5B8461DA2A84317293987186DAEA5ADFB`.
+- MuMu player smoke: the current saved `九门` episode initially showed the loading/blank state, then after about 15 seconds displayed a full-width video frame with progress, play/pause, ±5 seconds, fullscreen and cast capability row; both cold-start and player crash buffers are empty.
+- Acceptance boundary: dynamic covers/metadata and the 1080×2400 concept-art example images are not fixed runtime assets, so this candidate documents geometry and hierarchy parity rather than claiming pixel equality for data-dependent artwork. Drama detail and download source-chain acceptance remains blocked by live-source availability and is recorded as a limitation.
+
 ## Latest Release Candidate: 2026-08-22 Version 0.8.17 - high-fidelity mobile UI
 
 - VersionCode `80`, versionName `0.8.17`, package `com.lovelyreader`, label `老婆的小营地`.

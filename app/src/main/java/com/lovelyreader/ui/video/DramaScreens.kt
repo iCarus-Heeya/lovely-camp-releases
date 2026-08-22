@@ -18,6 +18,7 @@ import androidx.mediarouter.app.MediaRouteButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -68,18 +70,21 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.lovelyreader.video.VideoCastController
@@ -266,66 +271,93 @@ private fun DramaHomeStyledScreen(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                experienceSwitch()
-            }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("今晚想看点什么", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
-                Text("慢慢挑一部喜欢的，留一点轻松给自己。", style = MaterialTheme.typography.bodyLarge, color = colors.softGray)
-            }
-        }
-        recentViewing?.let { recent ->
-            item {
-                SoftPanel(modifier = Modifier.clickable(onClick = onResumeRecent)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("继续观看", style = MaterialTheme.typography.labelLarge, color = colors.roseBeige)
-                            Text(recent.titleName, style = MaterialTheme.typography.titleLarge, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("回到 ${recentEpisodeDisplayLabel(recent.episodeId)}", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
-                        }
-                        androidx.compose.material3.IconButton(onClick = onResumeRecent) {
-                            androidx.compose.material3.Surface(shape = androidx.compose.foundation.shape.CircleShape, color = colors.roseBeige) {
-                                Text("▶", color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
-                            }
-                        }
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    experienceSwitch()
+                }
+                if (onShowDiagnostics != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .pointerInput(Unit) { detectTapGestures(onTap = { onShowDiagnostics() }) },
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) { Text("⋯", color = colors.softGray, style = MaterialTheme.typography.titleLarge) }
                 }
             }
         }
         item {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = editableQuery,
-                    onValueChange = { editableQuery = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("搜一搜想看的剧") },
-                    leadingIcon = { Text("⌕", color = colors.softGray, style = MaterialTheme.typography.headlineSmall) },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.large,
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.roseBeige,
-                        unfocusedBorderColor = colors.lineColor,
-                        focusedContainerColor = colors.paper,
-                        unfocusedContainerColor = colors.paper,
-                        focusedTextColor = colors.cocoa,
-                        unfocusedTextColor = colors.cocoa,
-                        focusedPlaceholderColor = colors.softGray,
-                        unfocusedPlaceholderColor = colors.softGray
+            Text("今晚想看点什么", style = MaterialTheme.typography.headlineMedium, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+        }
+        item {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxWidth().height(36.dp),
+                shape = MaterialTheme.shapes.large,
+                color = colors.paper,
+                border = BorderStroke(1.dp, colors.lineColor)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("⌕", color = colors.softGray, fontSize = 24.sp)
+                    BasicTextField(
+                        value = editableQuery,
+                        onValueChange = { editableQuery = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = colors.cocoa, fontSize = 18.sp),
+                        decorationBox = { innerTextField ->
+                            if (editableQuery.isBlank()) Text("搜一搜想看的剧", color = colors.softGray, fontSize = 18.sp)
+                            innerTextField()
+                        }
                     )
-                )
-                Spacer(Modifier.size(8.dp))
-                Button(onClick = { onSearch(editableQuery) }, modifier = Modifier.height(50.dp), shape = MaterialTheme.shapes.large, colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp)) {
-                    Text("开始找剧", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Button(
+                        onClick = { onSearch(editableQuery) },
+                        modifier = Modifier.height(30.dp),
+                        shape = MaterialTheme.shapes.large,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)
+                    ) { Text("开始找剧", fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                }
+            }
+        }
+        recentViewing?.let { recent ->
+            item {
+                Text("继续观看", fontSize = 18.sp, color = colors.cocoa, modifier = Modifier.padding(top = 3.dp))
+            }
+            item {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxWidth().height(45.dp).clickable(onClick = onResumeRecent),
+                    shape = MaterialTheme.shapes.medium,
+                    color = colors.paper.copy(alpha = .92f),
+                    border = BorderStroke(1.dp, colors.lineColor)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(recent.titleName, fontSize = 18.sp, color = colors.cocoa, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("回到 ${recentEpisodeDisplayLabel(recent.episodeId)}", fontSize = 14.sp, color = colors.softGray)
+                        }
+                        Box(
+                            modifier = Modifier.size(28.dp).pointerInput(Unit) { detectTapGestures(onTap = { onResumeRecent() }) },
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize(), shape = androidx.compose.foundation.shape.CircleShape, color = colors.roseBeige) {
+                                Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Text("▶", color = Color.White, fontSize = 14.sp) }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -341,15 +373,6 @@ private fun DramaHomeStyledScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("找到的剧集", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
                 OutlinedButton(onClick = onOpenDownloads, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)) { Text("下载列表") }
-            }
-        }
-        onShowDiagnostics?.let { onClick ->
-            item {
-                OutlinedButton(
-                    onClick = onClick,
-                    shape = MaterialTheme.shapes.large,
-                    border = BorderStroke(1.dp, colors.lineColor)
-                ) { Text("调试片源连接") }
             }
         }
         dramaHomeAvailabilityMessage(rootStatus)?.let { message ->
@@ -814,18 +837,32 @@ fun DramaPlayerScreen(
         modifier = modifier.fillMaxSize().background(if (playerLayout.darkSurface) Color(0xFF111111) else Color.Black),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().background(Color(0xFF0A0A0A)).padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(72.dp)
+                .background(Color(0xFF050505))
+                .padding(horizontal = 18.dp)
         ) {
-            OutlinedButton(
-                onClick = onBack,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .45f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-            ) { Text("‹  返回选集") }
-            Text(dramaPlayerHeaderLabel(playback.titleName, playback.episode?.label), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.CenterStart)
+                    .clickable(onClick = onBack)
+                    .padding(vertical = 8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("‹", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                Text("返回选集", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
+            Text(
+                dramaPlayerHeaderLabel(playback.titleName, playback.episode?.label),
+                modifier = Modifier.align(androidx.compose.ui.Alignment.Center),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = androidx.compose.ui.Alignment.Center) {
             when {
@@ -847,8 +884,8 @@ fun DramaPlayerScreen(
             }
         }
         Column(modifier = Modifier.fillMaxWidth().background(Color(0xFF171717)).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("片源", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("片源", style = MaterialTheme.typography.titleLarge, color = Color.White)
                 if (castTarget != null) {
                     Button(onClick = {
                         showDlnaPicker = true
@@ -858,7 +895,12 @@ fun DramaPlayerScreen(
                             dlnaRenderers = devices
                             dlnaMessage = message
                         }
-                    }, colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige, contentColor = Color.White), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)) { Text("投屏到电视") }
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("⌁", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                            Text("投屏到电视")
+                        }
+                    }
                 }
                 if (castTarget != null && castController.isAvailable) {
                     AndroidView(
@@ -978,11 +1020,12 @@ private fun NativePlayerSurface(
     } else 0f
 
     Box(modifier = modifier.background(Color.Black)) {
-        AndroidView(
+                AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
                     this.player = player
                     useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 }
             },
@@ -1085,6 +1128,8 @@ private fun SitePlayerWebView(
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                setBackgroundColor(android.graphics.Color.BLACK)
+                overScrollMode = WebView.OVER_SCROLL_NEVER
                 addJavascriptInterface(
                     SitePlayerFrameBridge(
                         episodeUrl = episodeUrl,
@@ -1253,8 +1298,22 @@ private class SitePlayerWebViewClient(
                     parent=parent.parentElement;
                 }
                 document.body.style.setProperty('margin','0','important');
+                document.documentElement.style.setProperty('margin','0','important');
+                document.documentElement.style.setProperty('width','100%','important');
+                document.documentElement.style.setProperty('height','100%','important');
+                document.documentElement.style.setProperty('overflow','hidden','important');
+                document.body.style.setProperty('width','100%','important');
+                document.body.style.setProperty('height','100%','important');
+                document.body.style.setProperty('overflow','hidden','important');
                 player.style.setProperty('margin','0','important');
-                player.style.setProperty('width','100%','important');
+                player.style.setProperty('position','fixed','important');
+                player.style.setProperty('inset','0','important');
+                player.style.setProperty('width','100vw','important');
+                player.style.setProperty('height','100vh','important');
+                player.querySelectorAll('iframe,video').forEach(function(media){
+                    media.style.setProperty('width','100%','important');
+                    media.style.setProperty('height','100%','important');
+                });
                 return true;
             })()""".trimIndent(),
             null
@@ -1333,7 +1392,10 @@ private fun DownloadQueueStyledScreen(
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("下载列表", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("下载列表", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
+                    Text("❀", style = MaterialTheme.typography.headlineMedium, color = colors.roseBeige)
+                }
                 Text("已选的视频会在这里显示下载状态。", style = MaterialTheme.typography.bodyLarge, color = colors.softGray)
             }
         }

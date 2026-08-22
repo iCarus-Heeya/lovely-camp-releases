@@ -39,11 +39,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.theme.softPanelGradient
 
 @Composable
-fun SoftPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SoftPanel(
+    modifier: Modifier = Modifier,
+    innerPadding: androidx.compose.ui.unit.Dp = 14.dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = appColors().warmWhite),
         shape = MaterialTheme.shapes.medium,
@@ -61,7 +66,7 @@ fun SoftPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
         Column(
             modifier = Modifier
                 .background(appColors().softPanelGradient())
-                .padding(18.dp),
+                .padding(innerPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content
         )
@@ -75,12 +80,13 @@ fun HighFidelityHeader(
     onBack: (() -> Unit)? = null,
     onNotes: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    verticalPadding: androidx.compose.ui.unit.Dp = 12.dp
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = if (trailing != null) 12.dp else 24.dp, vertical = 18.dp),
+            .padding(horizontal = 0.dp, vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onBack != null) {
@@ -196,14 +202,18 @@ fun HighFidelitySearchEntry(onClick: () -> Unit, modifier: Modifier = Modifier) 
         border = BorderStroke(1.dp, appColors().lineColor)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Surface(shape = RoundedCornerShape(50), color = appColors().porcelain) {
-                Icon(Icons.Outlined.Search, contentDescription = "找书", modifier = Modifier.padding(10.dp), tint = appColors().ink)
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(50),
+                color = appColors().porcelain
+            ) {
+                Icon(Icons.Outlined.Search, contentDescription = "找书", modifier = Modifier.padding(8.dp), tint = appColors().ink)
             }
-            Text("找书", style = MaterialTheme.typography.titleLarge, color = appColors().ink, modifier = Modifier.weight(1f))
+            Text("找书", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = appColors().ink, modifier = Modifier.weight(1f))
             Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = appColors().softGray)
         }
     }

@@ -63,6 +63,20 @@ fun highFidelityBookLayout(page: BookPage): HighFidelityBookLayout = when (page)
     )
 }
 
+data class HighFidelityDetailChrome(
+    val aboveHeader: Boolean,
+    val switchWidthDp: Int,
+    val switchHeightDp: Int,
+    val horizontalPaddingDp: Int
+)
+
+fun highFidelityDetailChrome(): HighFidelityDetailChrome = HighFidelityDetailChrome(
+    aboveHeader = true,
+    switchWidthDp = 112,
+    switchHeightDp = 24,
+    horizontalPaddingDp = 24
+)
+
 fun highFidelitySettingsSectionOrder(): List<String> =
     listOf("应用更新", "阅读外观", "来源管理")
 
@@ -82,15 +96,42 @@ data class HighFidelityPlayerLayout(
     val darkSurface: Boolean,
     val showsProgressAndFullscreenControls: Boolean,
     val showsSourceAndEpisodeSurface: Boolean,
-    val usesCustomControlSurface: Boolean = false
+    val usesCustomControlSurface: Boolean = false,
+    val usesZoomedVideoSurface: Boolean = false,
+    val usesPlainTextBackControl: Boolean = false,
+    val keepsCastActionInline: Boolean = false
 )
 
 fun highFidelityPlayerLayout(): HighFidelityPlayerLayout = HighFidelityPlayerLayout(
     darkSurface = true,
     showsProgressAndFullscreenControls = true,
     showsSourceAndEpisodeSurface = true,
-    usesCustomControlSurface = true
+    usesCustomControlSurface = true,
+    usesZoomedVideoSurface = true,
+    usesPlainTextBackControl = true,
+    keepsCastActionInline = true
 )
+
+enum class HighFidelityDebugControlPlacement {
+    HeaderAction,
+    MainContent
+}
+
+data class HighFidelityDramaHomeLayout(
+    val sectionOrder: List<String>,
+    val debugControlPlacement: HighFidelityDebugControlPlacement,
+    val usesSeparateContinueHeading: Boolean,
+    val showsSubtitle: Boolean
+)
+
+fun highFidelityDramaHomeLayout(): HighFidelityDramaHomeLayout = HighFidelityDramaHomeLayout(
+    sectionOrder = listOf("标题", "搜索", "继续观看", "下载列表", "找到的剧集"),
+    debugControlPlacement = HighFidelityDebugControlPlacement.HeaderAction,
+    usesSeparateContinueHeading = true,
+    showsSubtitle = false
+)
+
+fun highFidelityUsesUnifiedExperienceSwitch(): Boolean = true
 
 fun highFidelitySettingsTitle(): String = "应用更新"
 
