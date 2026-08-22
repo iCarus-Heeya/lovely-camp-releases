@@ -439,7 +439,7 @@ private fun DramaDownloadPreviewCard(task: VideoDownloadTask) {
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${task.sourceId} · ${recentEpisodeDisplayLabel(task.episodeId)}", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                Text("${downloadSourceDisplayLabel(task.sourceId)} · ${recentEpisodeDisplayLabel(task.episodeId)}", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
                 Text(task.status.label(), style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
             }
             Text("›", color = colors.cocoa, style = MaterialTheme.typography.headlineMedium)
@@ -1232,7 +1232,7 @@ private fun DownloadQueueStyledScreen(
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(task.sourceId, style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                            Text(downloadSourceDisplayLabel(task.sourceId), style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
                             Text(recentEpisodeDisplayLabel(task.episodeId), style = MaterialTheme.typography.bodyLarge, color = colors.cocoa)
                         }
                         DownloadStatusChip(task.status)
@@ -1271,7 +1271,7 @@ fun DownloadQueueScreen(
 private fun DownloadTaskCard(task: VideoDownloadTask) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text("${task.sourceId} · ${task.episodeId}", style = MaterialTheme.typography.titleSmall)
+            Text("${downloadSourceDisplayLabel(task.sourceId)} · ${recentEpisodeDisplayLabel(task.episodeId)}", style = MaterialTheme.typography.titleSmall)
             Text(task.status.label(), style = MaterialTheme.typography.bodySmall)
             task.localUri?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }

@@ -660,6 +660,7 @@ Last known verified release state:
 ## Latest Update: 2026-08-22 High-fidelity completeness follow-up
 
 - Found and fixed two completeness gaps during final page audit: compact drama detail now renders the batch download action tied to `onEnqueueSelected`, and playback state/header preserves the drama name alongside the episode label.
-- Current root APKs: `老婆的小营地-v0.8.17.apk` SHA-256 `DCEE9C037946100334FAAA63236727F60F0142544DAA5C783CB5A69070EF0516`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `3ED3A1FB594593F04596FBF1D05A26AF6425F5E3612451FA5282CA688EFAABB0`.
-- Verification: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` succeeded; ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` full unit tests passed with 270 tests, 0 failures, 0 errors, 8 skipped; release APK v2 signature/package metadata verified.
+- Current root APKs: `老婆的小营地-v0.8.17.apk` SHA-256 `10A33B42E0B69BD08B4B3183BC8A4AF2CB2A2B5C35DD81E4E6D551A91F50DF8B`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `4E966332400B3689FCDF9EE21D413833D565AF64993838614617EA685413D2BA`.
+- Verification: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` succeeded; ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` full unit tests passed with 271 tests, 0 failures, 0 errors, 8 skipped; release APK v2 signature/package metadata verified.
 - MuMu `emulator-5554` Android 12 720x1280 installed the latest Debug package and cold-started shelf/drama home; live drama detail/player/download remains a known source-network limitation, not claimed as passed.
+- Download list UI now masks URL-bearing source IDs through `downloadSourceDisplayLabel`; test coverage prevents provider links from returning to user-facing cards.
