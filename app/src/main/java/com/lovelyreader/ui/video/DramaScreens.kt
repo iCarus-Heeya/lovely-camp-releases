@@ -317,10 +317,10 @@ private fun DramaHomeStyledScreen(
                 }
             }
         }
-        item {
-            Text("继续收看", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
-        }
         if (downloads.isNotEmpty()) {
+            item {
+                Text("下载列表", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
+            }
             items(downloads.take(3), key = { "preview-${it.id}" }) { task ->
                 DramaDownloadPreviewCard(task)
             }

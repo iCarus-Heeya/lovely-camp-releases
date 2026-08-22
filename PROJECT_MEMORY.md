@@ -665,3 +665,11 @@ Last known verified release state:
 - MuMu `emulator-5554` Android 12 720x1280 installed the latest Debug package and cold-started shelf/drama home; live drama detail/player/download remains a known source-network limitation, not claimed as passed.
 - Download list UI now masks URL-bearing source IDs through `downloadSourceDisplayLabel`; test coverage prevents provider links from returning to user-facing cards.
 - User-facing drama prompts avoid unnecessary English/protocol jargon; implementation logs and internal identifiers remain unchanged.
+
+## Latest Update: 2026-08-22 High-fidelity completeness audit — current state
+
+- Second full-page v3 audit found and fixed: bookshelf “继续阅读” section heading; reader progress action now shows percentage + “进度”; reader正文 uses 78dp top / 144dp bottom safe insets so chrome never covers text; drama download section uses “下载列表” only when tasks exist; empty video-download copy says “公开视频” without exposing MP4 format.
+- Current root artifacts after the final audit: `老婆的小营地-v0.8.17.apk` SHA-256 `046308BBA398575D6FA7A8A2C7A7AC6DD4A09B7A3E6D2408F0223268F88ABDD2`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `548C140AF8ED2CDBD0D229DA0C92566F75CC99E1CC0B58BF40FF4897273ED9AA`.
+- Verification: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` succeeded; ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` full unit tests passed with 272 tests, 0 failures, 0 errors, 8 skipped; Release APK v2 signature/package metadata verified (versionCode 80, versionName 0.8.17, label “老婆的小营地”).
+- MuMu `emulator-5554` Android 12, 720×1280 installed the final Debug package. UI tree confirms bookshelf “继续阅读”, reader `0.0%/进度`, and正文 bounds `[36,204][664,924]` separated from the reader chrome. Evidence is in `docs/ui/evidence/20260822-high-fidelity/`.
+- Live drama detail/player/download remains a source-network limitation; no claim of real source-chain success is made from the empty-result emulator run.

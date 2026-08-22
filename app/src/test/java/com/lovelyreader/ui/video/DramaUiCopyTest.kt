@@ -26,6 +26,14 @@ class DramaUiCopyTest {
     }
 
     @Test
+    fun emptyDownloadMessageDoesNotExposeTransportFormat() {
+        val message = noPublicVideoDownloadMessage()
+
+        assertEquals("所选剧集没有可下载的公开视频", message)
+        assertFalse(message.contains("MP4", ignoreCase = true))
+    }
+
+    @Test
     fun unknownDownloadPathIsNotExposedAsTechnicalIdentifier() {
         assertEquals("正在准备下载", userFacingDownloadLocation(null))
     }

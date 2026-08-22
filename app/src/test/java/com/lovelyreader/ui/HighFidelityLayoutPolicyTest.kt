@@ -19,6 +19,7 @@ class HighFidelityLayoutPolicyTest {
         val layout = highFidelityBookLayout(BookPage.Shelf)
 
         assertEquals(1, layout.findBookEntryCount)
+        assertTrue(layout.showsContinueReadingSection)
         assertTrue(layout.showsSharedAppChrome)
         assertTrue(layout.showsPaperDecoration)
     }
@@ -47,5 +48,7 @@ class HighFidelityLayoutPolicyTest {
         assertFalse(layout.showsSharedAppChrome)
         assertFalse(layout.showsBottomNavigation)
         assertTrue(layout.showsPaperDecoration)
+        assertEquals(78, layout.readerContentTopInsetDp)
+        assertEquals(144, layout.readerContentBottomInsetDp)
     }
 }

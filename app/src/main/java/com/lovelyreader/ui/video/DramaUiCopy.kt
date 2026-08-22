@@ -17,6 +17,8 @@ internal fun dramaStatusCopy(status: DramaStatus): String = when (status) {
 
 internal fun selectedEpisodeDownloadLabel(count: Int): String = "下载已选 ${count.coerceAtLeast(0)} 集"
 
+internal fun noPublicVideoDownloadMessage(): String = "所选剧集没有可下载的公开视频"
+
 internal fun userFacingDownloadLocation(location: String?): String =
     location?.takeIf { it.isNotBlank() } ?: "正在准备下载"
 

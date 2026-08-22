@@ -181,6 +181,7 @@ fun BookshelfScreen(
                         }
                     } else {
                         currentBook?.let { book ->
+                            HighFidelitySectionTitle("继续阅读")
                             val status = downloadStatuses[book.id]
                                 ?: BookDownloadStatus(
                                     state = if (progressFor(book.id) >= 100) DownloadState.Ready else DownloadState.NotStarted,
@@ -785,16 +786,21 @@ fun ReaderScreen(
         bottomBar = {},
         containerColor = readerChrome
     ) { _ ->
+        InkWashBackground(Modifier.fillMaxSize()) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(readerChrome)
+                .background(if (nightMode) readerChrome else Color.Transparent)
         ) {
             val density = LocalDensity.current
             val startPadding = 18.dp
             val endPadding = 28.dp
-            val topPadding = 18.dp
-            val bottomPadding = 18.dp
+            // Keep paginated text out of the overlaid reader chrome. Without
+            // these insets the first/last lines bleed through the toolbar and
+            // bottom menu, unlike the high-fidelity reader concept.
+            val readerLayout = highFidelityBookLayout(BookPage.Reader)
+            val topPadding = readerLayout.readerContentTopInsetDp.dp
+            val bottomPadding = readerLayout.readerContentBottomInsetDp.dp
             val pageWidthPx = with(density) { (maxWidth - startPadding - endPadding).roundToPx() }
             val pageHeightPx = with(density) { (maxHeight - topPadding - bottomPadding).roundToPx() }
             val textStyle = TextStyle(
@@ -952,7 +958,9 @@ fun ReaderScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(pageColor)
+                                .background(
+                                    if (nightMode) pageColor else pageColor.copy(alpha = 0.94f)
+                                )
                         )
                         Column(
                             modifier = Modifier
@@ -1032,7 +1040,7 @@ fun ReaderScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(readerChrome.copy(alpha = .94f))
+                        .background(readerChrome)
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1208,6 +1216,7 @@ fun ReaderScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -1285,9 +1294,8 @@ private fun ReaderBottomMenu(
                         )
                     }
                 }
-                MenuIconButton(
-                    icon = if (nightMode) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                    label = "进度",
+                ReaderProgressMenuButton(
+                    currentProgress = currentProgress,
                     onClick = onProgressClick
                 )
             }
@@ -1303,6 +1311,33 @@ private fun ReaderBottomMenu(
                 )
             )
         }
+    }
+}
+
+@Composable
+private fun ReaderProgressMenuButton(
+    currentProgress: Float,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = String.format(Locale.US, "%.1f%%", (currentProgress * 100f).coerceIn(0f, 100f)),
+            fontSize = 11.sp,
+            color = appColors().cocoa.copy(alpha = 0.75f),
+            maxLines = 1
+        )
+        Text(
+            text = "进度",
+            fontSize = 10.sp,
+            color = appColors().cocoa.copy(alpha = 0.7f),
+            maxLines = 1
+        )
     }
 }
 
