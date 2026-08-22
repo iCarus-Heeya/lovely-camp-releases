@@ -374,7 +374,7 @@ private fun VideoDiagnosticsDialog(
         },
         text = {
             LazyColumn {
-                item { Text("仅 Debug 包显示；地址已去除查询参数和令牌。") }
+                item { Text("仅调试版显示；地址已去除参数和令牌。") }
                 item { Spacer(Modifier.height(8.dp)) }
                 items(diagnostics) { event ->
                     Text(event.displayText, style = MaterialTheme.typography.bodySmall)
@@ -644,8 +644,8 @@ private fun DramaDetailCompactScreen(
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             SoftPanel {
-                Text("当前片源未公开可下载 MP4", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
-                Text("点集号播放；如来源提供公开 MP4，选中后可加入下载。", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                Text("当前片源未提供公开下载视频", style = MaterialTheme.typography.bodyMedium, color = colors.softGray)
+                Text("点集号播放；如来源提供公开视频，选中后可加入下载。", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -851,7 +851,7 @@ fun DramaPlayerScreen(
                     Button(onClick = {
                         showDlnaPicker = true
                         dlnaRenderers = emptyList()
-                        dlnaMessage = "正在搜索同一 Wi-Fi 下支持 DLNA 的电视…"
+                        dlnaMessage = "正在搜索同一无线网络下支持投屏的电视…"
                         dlnaController.discover { devices, message ->
                             dlnaRenderers = devices
                             dlnaMessage = message
