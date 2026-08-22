@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -182,7 +184,8 @@ fun LovelyReaderApp(
             selected = experience,
             onSelected = { experience = it },
             compact = true,
-            compactWidth = 220.dp
+            compactWidth = 220.dp,
+            compactHeight = 24.dp
         )
     }
     val renderInlineExperienceSwitch: @Composable () -> Unit = {
@@ -190,7 +193,8 @@ fun LovelyReaderApp(
             selected = experience,
             onSelected = { experience = it },
             compact = true,
-            compactWidth = 112.dp
+            compactWidth = 112.dp,
+            compactHeight = 24.dp
         )
     }
     val browseScreen: @Composable () -> Unit = {
@@ -311,7 +315,10 @@ fun LovelyReaderApp(
                 }
             },
             loadDetail = { viewModel.loadDetail(current.result) },
-            experienceSwitch = renderExperienceSwitch,
+            // The v3 detail concept keeps the experience toggle compact in
+            // the top chrome; the full-width switch is reserved for shelf and
+            // drama home where it is the primary page control.
+            experienceSwitch = renderInlineExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
             )
         }
@@ -402,80 +409,49 @@ private fun AppExperienceSwitch(
     selected: AppExperience,
     onSelected: (AppExperience) -> Unit,
     compact: Boolean = false,
-    compactWidth: Dp = 220.dp
+    compactWidth: Dp = 220.dp,
+    compactHeight: Dp = 24.dp
 ) {
-    Surface(
-        color = Color.Transparent,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        if (compact) {
-            CompactExperienceSwitch(
-                selected = selected,
-                onSelected = onSelected,
-                width = compactWidth
-            )
-        } else Row(
-            modifier = if (compact) {
-                Modifier.width(compactWidth).padding(vertical = 4.dp)
-            } else {
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)
-            },
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (selected == AppExperience.Reader) {
-                Button(
-                    onClick = {},
-                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
-                ) { Text("小书架", fontSize = if (compact) 14.sp else 16.sp) }
-            } else {
-                OutlinedButton(
-                    onClick = { onSelected(AppExperience.Reader) },
-                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
-                    shape = MaterialTheme.shapes.large
-                ) { Text("小书架", fontSize = if (compact) 14.sp else 16.sp) }
-            }
-            if (selected == AppExperience.Drama) {
-                Button(
-                    onClick = {},
-                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
-                ) { Text("追剧", fontSize = if (compact) 14.sp else 16.sp) }
-            } else {
-                OutlinedButton(
-                    onClick = { onSelected(AppExperience.Drama) },
-                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
-                    shape = MaterialTheme.shapes.large
-                ) { Text("追剧", fontSize = if (compact) 14.sp else 16.sp) }
-            }
-        }
-    }
+    UnifiedExperienceSwitch(
+        selected = selected,
+        onSelected = onSelected,
+        width = if (compact) compactWidth else null,
+        compact = compact,
+        compactHeight = compactHeight
+    )
 }
 
 @Composable
-private fun CompactExperienceSwitch(
+private fun UnifiedExperienceSwitch(
     selected: AppExperience,
     onSelected: (AppExperience) -> Unit,
-    width: Dp
+    width: Dp?,
+    compact: Boolean,
+    compactHeight: Dp
 ) {
-    Row(
-        modifier = Modifier.width(width).height(40.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    val height = if (compact) compactHeight else 56.dp
+    Surface(
+        modifier = (if (width != null) Modifier.width(width) else Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+            .height(height)
+            .padding(vertical = if (compact) 0.dp else 4.dp),
+        shape = RoundedCornerShape(height / 2),
+        color = appColors().warmWhite.copy(alpha = .58f),
+        border = BorderStroke(1.dp, appColors().lineColor)
     ) {
-        val itemWidth = (width - 6.dp) / 2
-        listOf(AppExperience.Reader to "小书架", AppExperience.Drama to "追剧").forEach { (value, label) ->
-            val active = selected == value
-            Surface(
-                modifier = Modifier.width(itemWidth).fillMaxHeight().clickable(enabled = !active) { onSelected(value) },
-                shape = RoundedCornerShape(22.dp),
-                color = if (active) appColors().roseDust else Color.Transparent,
-                border = if (active) null else BorderStroke(1.dp, appColors().roseBeige)
-            ) {
-                Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    Text(label, color = if (active) Color.White else appColors().roseDust, fontSize = 14.sp)
+        Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
+            listOf(AppExperience.Reader to "小书架", AppExperience.Drama to "追剧").forEach { (value, label) ->
+                val active = selected == value
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(if (active) appColors().roseDust else Color.Transparent, RoundedCornerShape(height / 2))
+                        .pointerInput(value, active) {
+                            detectTapGestures(onTap = { if (!active) onSelected(value) })
+                        },
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    Text(label, color = if (active) Color.White else appColors().roseDust, fontSize = if (compact) 14.sp else 17.sp)
                 }
             }
         }

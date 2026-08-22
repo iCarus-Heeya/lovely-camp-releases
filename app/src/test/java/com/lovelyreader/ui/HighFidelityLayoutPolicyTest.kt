@@ -42,6 +42,16 @@ class HighFidelityLayoutPolicyTest {
     }
 
     @Test
+    fun detailUsesCompactExperienceChromeAboveTheHeroHeader() {
+        val chrome = highFidelityDetailChrome()
+
+        assertTrue(chrome.aboveHeader)
+        assertEquals(112, chrome.switchWidthDp)
+        assertEquals(24, chrome.switchHeightDp)
+        assertEquals(24, chrome.horizontalPaddingDp)
+    }
+
+    @Test
     fun readerIsFocusedAndHidesSharedChromeAndBottomNavigation() {
         val layout = highFidelityBookLayout(BookPage.Reader)
 
@@ -69,5 +79,23 @@ class HighFidelityLayoutPolicyTest {
         assertTrue(layout.showsProgressAndFullscreenControls)
         assertTrue(layout.showsSourceAndEpisodeSurface)
         assertTrue(layout.usesCustomControlSurface)
+        assertTrue(layout.usesZoomedVideoSurface)
+        assertTrue(layout.usesPlainTextBackControl)
+        assertTrue(layout.keepsCastActionInline)
+    }
+
+    @Test
+    fun dramaHomeKeepsConceptSectionOrderAndMovesDebugOutOfMainContent() {
+        val layout = highFidelityDramaHomeLayout()
+
+        assertEquals(listOf("标题", "搜索", "继续观看", "下载列表", "找到的剧集"), layout.sectionOrder)
+        assertEquals(HighFidelityDebugControlPlacement.HeaderAction, layout.debugControlPlacement)
+        assertTrue(layout.usesSeparateContinueHeading)
+        assertFalse(layout.showsSubtitle)
+    }
+
+    @Test
+    fun experienceSwitchUsesOneUnifiedSegmentedSurface() {
+        assertTrue(highFidelityUsesUnifiedExperienceSwitch())
     }
 }

@@ -28,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -76,76 +75,48 @@ fun MainBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 28.dp, vertical = 12.dp)
+            .background(appColors().cream.copy(alpha = .96f))
+            .padding(horizontal = 18.dp)
     ) {
-        androidx.compose.material3.Surface(
-            shape = MaterialTheme.shapes.large,
-            color = appColors().warmWhite.copy(alpha = 0.86f),
-            tonalElevation = 0.dp,
-            shadowElevation = 8.dp,
-            border = androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.72f)
-            ),
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(
-                    elevation = 12.dp,
-                    shape = MaterialTheme.shapes.large,
-                    ambientColor = appColors().blush.copy(alpha = 0.16f),
-                    spotColor = appColors().blush.copy(alpha = 0.1f)
-                )
+                .height(62.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    val isSelected = tab == selected
-                    val containerColor by animateColorAsState(
-                        targetValue = if (isSelected) appColors().blush.copy(alpha = 0.72f) else Color.Transparent,
-                        label = "tabBg"
-                    )
-                    val contentColor = if (isSelected) appColors().roseBeige else appColors().cocoa.copy(alpha = 0.55f)
+            tabs.forEachIndexed { index, tab ->
+                val isSelected = tab == selected
+                val contentColor = if (isSelected) appColors().roseDust else appColors().cocoa.copy(alpha = 0.58f)
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .padding(2.dp)
-                            .background(
-                                color = containerColor,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = actions[index]
-                            ),
-                        contentAlignment = Alignment.Center
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = actions[index]
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            Icon(
-                                imageVector = tab.icon,
-                                contentDescription = tab.label,
-                                tint = contentColor,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Text(
-                                text = tab.label,
-                                fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = contentColor,
-                                maxLines = 1
-                            )
-                        }
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = tab.label,
+                            tint = contentColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = tab.label,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = contentColor,
+                            maxLines = 1
+                        )
                     }
                 }
             }

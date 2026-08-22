@@ -61,6 +61,7 @@ fun RealBookCover(
 ) {
     val gradient = coverGradientFor(title)
     val textColor = textColorFor(title)
+    val coverColors = appColors()
 
     Box(modifier = modifier) {
         Box(
@@ -74,6 +75,23 @@ fun RealBookCover(
                             start = Offset(0f, 0f),
                             end = Offset(size.width * 0.55f, size.height * 0.55f)
                         )
+                    )
+                    // Keep the no-network fallback visually rich instead of
+                    // exposing a flat color block while a real cover loads.
+                    drawCircle(
+                        color = coverColors.cocoa.copy(alpha = .18f),
+                        radius = size.minDimension * .34f,
+                        center = Offset(size.width * .54f, size.height * .36f)
+                    )
+                    drawCircle(
+                        color = coverColors.almond.copy(alpha = .40f),
+                        radius = size.minDimension * .22f,
+                        center = Offset(size.width * .54f, size.height * .32f)
+                    )
+                    drawOval(
+                        color = coverColors.cocoa.copy(alpha = .20f),
+                        topLeft = Offset(size.width * .10f, size.height * .64f),
+                        size = androidx.compose.ui.geometry.Size(size.width * .80f, size.height * .22f)
                     )
                 }
         )
@@ -159,6 +177,7 @@ fun SmallBookCover(
 ) {
     val gradient = coverGradientFor(title)
     val textColor = textColorFor(title)
+    val coverColors = appColors()
 
     Box(modifier = modifier) {
         Box(
@@ -172,6 +191,16 @@ fun SmallBookCover(
                             start = Offset(0f, 0f),
                             end = Offset(size.width * 0.5f, size.height * 0.5f)
                         )
+                    )
+                    drawCircle(
+                        color = coverColors.cocoa.copy(alpha = .16f),
+                        radius = size.minDimension * .30f,
+                        center = Offset(size.width * .55f, size.height * .34f)
+                    )
+                    drawOval(
+                        color = coverColors.cocoa.copy(alpha = .18f),
+                        topLeft = Offset(size.width * .12f, size.height * .64f),
+                        size = androidx.compose.ui.geometry.Size(size.width * .76f, size.height * .20f)
                     )
                 }
         )

@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.List
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -153,16 +155,17 @@ fun BookshelfScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
             ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    HighFidelityHeader(title = "书架", onNotes = onSettings)
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    HighFidelityHeader(title = "书架", onNotes = onSettings, verticalPadding = 6.dp)
+                    Box(modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp), contentAlignment = Alignment.Center) {
                         experienceSwitch?.invoke()
                     }
-                    HighFidelitySearchEntry(onClick = onSearch)
+                    HighFidelitySearchEntry(onClick = onSearch, modifier = Modifier.height(40.dp))
+                    Spacer(Modifier.height(13.dp))
 
                     if (books.isEmpty()) {
                         SoftPanel {
@@ -187,7 +190,7 @@ fun BookshelfScreen(
                                     state = if (progressFor(book.id) >= 100) DownloadState.Ready else DownloadState.NotStarted,
                                     percent = progressFor(book.id)
                                 )
-                            SoftPanel(modifier = Modifier.clickable { onOpenBook(book) }) {
+                            SoftPanel(modifier = Modifier.clickable { onOpenBook(book) }, innerPadding = 10.dp) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -197,9 +200,9 @@ fun BookshelfScreen(
                                         url = book.coverUrl,
                                         title = book.title,
                                         author = book.author,
-                                        modifier = Modifier
-                                            .width(96.dp)
-                                            .height(140.dp)
+                                            modifier = Modifier
+                                            .width(104.dp)
+                                            .height(115.dp)
                                     )
                                     Column(
                                         modifier = Modifier.weight(1f),
@@ -247,13 +250,25 @@ fun BookshelfScreen(
                                             color = appColors().roseBeige,
                                             trackColor = appColors().almond
                                         )
-                                        Button(
-                                            onClick = { onOpenBook(book) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = appColors().roseBeige),
-                                            shape = MaterialTheme.shapes.large
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Download,
+                                                contentDescription = null,
+                                                tint = appColors().roseDust,
+                                                modifier = Modifier.size(18.dp)
+                                            )
                                             Text(
-                                                if (status.state == DownloadState.Ready) "继续阅读" else "继续下载/重试",
+                                                when (status.state) {
+                                                    DownloadState.Ready -> "已下载 · 点击继续阅读"
+                                                    DownloadState.Downloading -> "正在下载"
+                                                    DownloadState.Failed -> "下载失败 · 点击重试"
+                                                    DownloadState.NotStarted -> "待下载 · 点击开始"
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = appColors().roseDust,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -280,13 +295,14 @@ fun BookshelfScreen(
                                 ShelfSortMode.ByProgress to "进度",
                                 ShelfSortMode.ByTitle to "书名"
                             ).forEach { (value, label) ->
-                                TextButton(
-                                    onClick = { onSortModeChanged(value) },
-                                    colors = ButtonDefaults.textButtonColors(
-                                        contentColor = if (sortMode == value) appColors().roseDust else appColors().softGray
-                                    ),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)
-                                ) { Text(label, fontWeight = if (sortMode == value) FontWeight.SemiBold else FontWeight.Normal) }
+                                Text(
+                                    text = label,
+                                    modifier = Modifier
+                                        .clickable { onSortModeChanged(value) }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                    color = if (sortMode == value) appColors().roseDust else appColors().softGray,
+                                    fontWeight = if (sortMode == value) FontWeight.SemiBold else FontWeight.Normal
+                                )
                             }
                         }
                     }
@@ -374,7 +390,7 @@ fun SearchScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
             item {
                 HighFidelityHeader(
@@ -413,49 +429,71 @@ fun SearchScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                placeholder = {
-                                    Text(
-                                        "小说名或作者，支持模糊搜索",
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontSize = 14.sp
+                            Surface(
+                                modifier = Modifier.weight(1f).height(54.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                color = appColors().warmWhite.copy(alpha = .82f),
+                                border = BorderStroke(1.dp, appColors().almond)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = appColors().softGray, modifier = Modifier.size(25.dp))
+                                    BasicTextField(
+                                        value = query,
+                                        onValueChange = { query = it },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = appColors().cocoa),
+                                        decorationBox = { innerTextField ->
+                                            if (query.isBlank()) {
+                                                Text("小说名或作者，支持模糊搜索", color = appColors().softGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            innerTextField()
+                                        }
                                     )
-                                },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(18.dp)
-                            )
-                            Button(
-                                onClick = { onSearch(query) },
+                                }
+                            }
+                            Surface(
+                                onClick = { if (!isSearching) onSearch(query) },
                                 enabled = !isSearching,
-                                colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                shape = RoundedCornerShape(16.dp)
-                            ) { Text(if (isSearching) "搜索中" else "开始搜索", maxLines = 1) }
+                                modifier = Modifier.height(54.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                color = appColors().roseDust,
+                                contentColor = Color.White
+                            ) {
+                                Box(modifier = Modifier.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                                    Text(if (isSearching) "搜索中" else "开始搜索", maxLines = 1)
+                                }
+                            }
                         }
+                        Spacer(Modifier.height(6.dp))
+                        Text("最近搜索", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = appColors().cocoa)
                         if (searchHistory.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text("最近搜索", fontSize = 12.sp, color = appColors().cocoa.copy(alpha = 0.6f))
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 items(searchHistory) { historyQuery ->
-                                    OutlinedButton(
+                                    Surface(
                                         onClick = {
                                             query = historyQuery
                                             onSearch(historyQuery)
-                                        }
-                                    ) {
-                                        Text(historyQuery, fontSize = 13.sp)
-                                    }
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = appColors().porcelain.copy(alpha = .82f),
+                                        border = BorderStroke(1.dp, appColors().lineColor)
+                                    ) { Text(historyQuery, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
                                 }
                             }
+                        } else {
+                            Text("搜过的书会显示在这里", fontSize = 12.sp, color = appColors().softGray)
                         }
-                        Text(message, color = appColors().cocoa.copy(alpha = 0.7f))
+                        if (message.isNotBlank() && isHighFidelitySearchStatus(message, isSearching)) {
+                            Text(message, color = appColors().cocoa.copy(alpha = 0.7f))
+                        }
                     }
                     items(
                         items = displayResults,
@@ -628,6 +666,12 @@ private fun LoadingPanel(text: String) {
     }
 }
 
+private fun isHighFidelitySearchStatus(message: String, isSearching: Boolean): Boolean {
+    if (isSearching) return true
+    return message.contains("失败") || message.contains("错误") || message.contains("网络") ||
+        message.contains("超时") || message.contains("找到") || message.contains("暂无")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookDetailScreen(
@@ -653,17 +697,18 @@ fun BookDetailScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
             ) {
             item {
                 if (highFidelityChromePlacement(BookPage.Detail) == HighFidelityChromePlacement.BelowHeader) {
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        contentAlignment = Alignment.CenterEnd
                     ) {
                         experienceSwitch?.invoke()
                     }
+                    Spacer(Modifier.height(24.dp))
                 }
                 HighFidelityHeader(
                     title = "书籍详情",
@@ -1493,38 +1538,40 @@ private fun HighFidelityUpdatePanel(
             modifier = Modifier.padding(vertical = 6.dp),
             color = appColors().lineColor
         )
-        updateAvailable?.let { manifest ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(width = 104.dp, height = 122.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = appColors().cocoa,
+                border = BorderStroke(1.dp, appColors().roseBeige)
             ) {
-                Surface(
-                    modifier = Modifier.size(width = 104.dp, height = 122.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    color = appColors().cocoa,
-                    border = BorderStroke(1.dp, appColors().roseBeige)
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(10.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(10.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Icon(Icons.Outlined.AutoStories, contentDescription = null, tint = appColors().almond, modifier = Modifier.size(30.dp))
-                        Text("老婆的小营地", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("新版本", color = appColors().almond, fontSize = 12.sp)
-                    }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("发现新版本 ${manifest.versionName}", style = MaterialTheme.typography.titleLarge, color = appColors().ink)
-                    Text(highFidelityUserUpdateNotes(manifest.notes), style = MaterialTheme.typography.bodyLarge, color = appColors().cocoa.copy(alpha = .8f))
+                    Icon(Icons.Outlined.AutoStories, contentDescription = null, tint = appColors().almond, modifier = Modifier.size(30.dp))
+                    Text("老婆的小营地", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (updateAvailable == null) "当前版本" else "新版本", color = appColors().almond, fontSize = 12.sp)
                 }
             }
-        } ?: Text(
-            if (updateMessage.isNotBlank()) updateMessage else "点击检查，看看有没有新的小惊喜。",
-            style = MaterialTheme.typography.bodyLarge,
-            color = appColors().cocoa.copy(alpha = .78f),
-            modifier = Modifier.padding(vertical = 10.dp)
-        )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    updateAvailable?.let { "发现新版本 ${it.versionName}" } ?: "当前版本已安装",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = appColors().ink
+                )
+                Text(
+                    updateAvailable?.let { highFidelityUserUpdateNotes(it.notes) }
+                        ?: updateMessage.ifBlank { "点击检查，看看有没有新的小惊喜。" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = appColors().cocoa.copy(alpha = .8f)
+                )
+            }
+        }
         OutlinedButton(
             onClick = onCheckUpdate,
             modifier = Modifier.fillMaxWidth().height(54.dp),
