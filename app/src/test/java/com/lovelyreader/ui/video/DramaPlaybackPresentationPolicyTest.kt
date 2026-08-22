@@ -14,6 +14,18 @@ class DramaPlaybackPresentationPolicyTest {
     }
 
     @Test
+    fun `batch download action is enabled only when at least one episode is selected`() {
+        assertFalse(batchDownloadEnabled(0))
+        assertTrue(batchDownloadEnabled(2))
+    }
+
+    @Test
+    fun `player header keeps the title and episode distinguishable`() {
+        assertEquals("南部档案 · 第6集", dramaPlayerHeaderLabel("南部档案", "第6集"))
+        assertEquals("第6集", dramaPlayerHeaderLabel(null, "第6集"))
+    }
+
+    @Test
     fun `site player describes download and cast as unavailable rather than offering actions`() {
         val sitePlayer = VideoMediaLink(
             playbackUrl = "https://example.com/episode",
