@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HighFidelityLayoutPolicyTest {
+
+    @Test
+    fun `experience switch follows page specific concept placement`() {
+        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Shelf))
+        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Search))
+        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Detail))
+        assertEquals(HighFidelityChromePlacement.Hidden, highFidelityChromePlacement(BookPage.Reader))
+    }
     @Test
     fun bookshelfHasOneFindBookEntryAndKeepsTheSharedChrome() {
         val layout = highFidelityBookLayout(BookPage.Shelf)

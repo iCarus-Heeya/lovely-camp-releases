@@ -74,6 +74,7 @@ fun HighFidelityHeader(
     title: String,
     onBack: (() -> Unit)? = null,
     onNotes: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -113,11 +114,16 @@ fun HighFidelityHeader(
                 color = appColors().ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = (if (trailing != null) Modifier.width(120.dp) else Modifier.weight(1f))
+                    .padding(horizontal = 4.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
-        if (onNotes != null) {
+        if (trailing != null) {
+            Box(modifier = Modifier.width(140.dp), contentAlignment = Alignment.Center) {
+                trailing()
+            }
+        } else if (onNotes != null) {
             Row(
                 modifier = Modifier.clickable(onClick = onNotes),
                 verticalAlignment = Alignment.CenterVertically,

@@ -91,6 +91,7 @@ import com.lovelyreader.ui.theme.appColors
 fun DramaScreen(
     viewModel: DramaViewModel,
     debugDiagnostics: (() -> List<VideoRequestDiagnostic>)? = null,
+    experienceSwitch: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val rootStatus by viewModel.rootStatus.collectAsState()
@@ -133,6 +134,7 @@ fun DramaScreen(
                 page = DramaPage.Downloads
             },
             onShowDiagnostics = debugDiagnostics?.let { { showDiagnostics = true } },
+            experienceSwitch = experienceSwitch,
             listState = homeListState,
             modifier = modifier
         )
@@ -152,6 +154,7 @@ fun DramaScreen(
                 page = DramaPage.Player
             },
             onEnqueueSelected = viewModel::enqueueSelectedEpisodes,
+            experienceSwitch = experienceSwitch,
             modifier = modifier
         )
         DramaPage.Downloads -> DownloadQueueStyledScreen(
@@ -241,6 +244,7 @@ private fun DramaHomeStyledScreen(
     onOpenTitle: (VideoTitle) -> Unit,
     onOpenDownloads: () -> Unit,
     onShowDiagnostics: (() -> Unit)?,
+    experienceSwitch: @Composable () -> Unit,
     listState: LazyListState,
     modifier: Modifier = Modifier
 ) {
@@ -253,6 +257,11 @@ private fun DramaHomeStyledScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
+        item {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                experienceSwitch()
+            }
+        }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("今晚想看点什么", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
@@ -557,7 +566,9 @@ private fun DramaDetailCompactScreen(
     sources: List<VideoSource>, selectedSource: VideoSource?, episodes: List<VideoEpisode>,
     selectedEpisodeIds: Set<String>, onBack: () -> Unit, onSelectSource: (VideoSource) -> Unit,
     onToggleEpisode: (String) -> Unit, onPlayEpisode: (VideoEpisode) -> Unit,
-    onEnqueueSelected: () -> Unit, modifier: Modifier = Modifier
+    onEnqueueSelected: () -> Unit,
+    experienceSwitch: @Composable () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = appColors()
     InkWashBackground(modifier.fillMaxSize()) {
@@ -568,6 +579,11 @@ private fun DramaDetailCompactScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                experienceSwitch()
+            }
+        }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

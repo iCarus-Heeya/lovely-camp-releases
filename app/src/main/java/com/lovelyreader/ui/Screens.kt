@@ -133,6 +133,7 @@ fun BookshelfScreen(
     onDeleteBook: (Book) -> Unit,
     onSettings: () -> Unit,
     lastReaderBookId: String? = null,
+    experienceSwitch: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
     val currentBook = remember(books, lastReaderBookId) {
@@ -158,6 +159,9 @@ fun BookshelfScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
                     HighFidelityHeader(title = "书架", onNotes = onSettings)
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        experienceSwitch?.invoke()
+                    }
                     HighFidelitySearchEntry(onClick = onSearch)
 
                     if (books.isEmpty()) {
@@ -332,6 +336,7 @@ fun SearchScreen(
     onAddResultToShelf: (SearchResult) -> Unit,
     onSearchModeChanged: (String) -> Unit,
     onCancelDiscoveryLoads: () -> Unit,
+    experienceSwitch: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
     var query by remember { mutableStateOf("") }
@@ -372,6 +377,9 @@ fun SearchScreen(
             ) {
             item {
                 HighFidelityHeader(title = "帮老婆找书", onBack = onBack)
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    experienceSwitch?.invoke()
+                }
                 HighFidelityDiscoveryTabs(
                     selected = mode.label,
                     labels = listOf("搜索", "首页精选", "随便看看"),
@@ -619,6 +627,7 @@ fun BookDetailScreen(
     onBack: () -> Unit,
     onAddToShelf: () -> Unit,
     onOpenOriginal: () -> Unit,
+    experienceSwitch: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
     Scaffold(
@@ -640,6 +649,9 @@ fun BookDetailScreen(
             ) {
             item {
                 HighFidelityHeader(title = "书籍详情", onBack = onBack)
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    experienceSwitch?.invoke()
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(22.dp),
