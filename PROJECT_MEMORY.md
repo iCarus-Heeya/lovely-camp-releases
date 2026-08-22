@@ -660,7 +660,8 @@ Last known verified release state:
 ## Latest Update: 2026-08-22 High-fidelity completeness follow-up
 
 - Found and fixed two completeness gaps during final page audit: compact drama detail now renders the batch download action tied to `onEnqueueSelected`, and playback state/header preserves the drama name alongside the episode label.
-- Current root APKs: `老婆的小营地-v0.8.17.apk` SHA-256 `10A33B42E0B69BD08B4B3183BC8A4AF2CB2A2B5C35DD81E4E6D551A91F50DF8B`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `4E966332400B3689FCDF9EE21D413833D565AF64993838614617EA685413D2BA`.
+- Current root APKs: `老婆的小营地-v0.8.17.apk` SHA-256 `714500C1BB8BD3A7BB0B967D70CAAC52273686D2A69FBE0E84B5D30BC6E21C11`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `2E9C1049C1A8B777B6C7D70E693C32D59F8AC77E285B933A9A4C6E16165A4C87`.
 - Verification: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` succeeded; ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` full unit tests passed with 271 tests, 0 failures, 0 errors, 8 skipped; release APK v2 signature/package metadata verified.
 - MuMu `emulator-5554` Android 12 720x1280 installed the latest Debug package and cold-started shelf/drama home; live drama detail/player/download remains a known source-network limitation, not claimed as passed.
 - Download list UI now masks URL-bearing source IDs through `downloadSourceDisplayLabel`; test coverage prevents provider links from returning to user-facing cards.
+- User-facing drama prompts avoid unnecessary English/protocol jargon; implementation logs and internal identifiers remain unchanged.
