@@ -20,6 +20,13 @@ internal fun selectedEpisodeDownloadLabel(count: Int): String = "下载已选 ${
 internal fun userFacingDownloadLocation(location: String?): String =
     location?.takeIf { it.isNotBlank() } ?: "正在准备下载"
 
+/** Download metadata stores opaque provider IDs; never render their URL-bearing prefix. */
+internal fun downloadSourceDisplayLabel(sourceId: String): String {
+    val sourceKey = sourceId.substringAfterLast("#source-", "")
+    val index = sourceKey.substringAfterLast('-').toIntOrNull()
+    return index?.let { "片源 ${it + 1}" } ?: "当前片源"
+}
+
 /** Episode IDs are internal routing keys and can contain provider URLs; never render them directly. */
 internal fun recentEpisodeDisplayLabel(episodeId: String): String {
     val number = Regex("""(?:num-|episode-)(\d+)(?:\D|$)""", RegexOption.IGNORE_CASE)

@@ -39,4 +39,14 @@ class DramaUiCopyTest {
         assertEquals("第1集", label)
         assertFalse(label.contains("http", ignoreCase = true))
     }
+
+    @Test
+    fun downloadSourceLabelNeverShowsTheInternalProviderUrl() {
+        val label = downloadSourceDisplayLabel(
+            "https://old-provider.example/title#source-stab81-0"
+        )
+
+        assertEquals("片源 1", label)
+        assertFalse(label.contains("http", ignoreCase = true))
+    }
 }
