@@ -22,7 +22,11 @@ enum class HighFidelityChromePlacement {
 
 fun highFidelityChromePlacement(page: BookPage): HighFidelityChromePlacement = when (page) {
     BookPage.Shelf -> HighFidelityChromePlacement.BelowHeader
-    BookPage.Search, BookPage.Detail -> HighFidelityChromePlacement.HeaderTrailing
+    BookPage.Search -> HighFidelityChromePlacement.HeaderTrailing
+    // The v3 detail concept puts the experience switch in its own first row,
+    // above the back/title row. Keeping this separate avoids compressing the
+    // hero header and matches the 9:16 detail composition.
+    BookPage.Detail -> HighFidelityChromePlacement.BelowHeader
     BookPage.Reader -> HighFidelityChromePlacement.Hidden
 }
 
@@ -61,6 +65,30 @@ fun highFidelityBookLayout(page: BookPage): HighFidelityBookLayout = when (page)
 
 fun highFidelitySettingsSectionOrder(): List<String> =
     listOf("应用更新", "阅读外观", "来源管理")
+
+data class HighFidelitySettingsLayout(
+    val showsRoseMark: Boolean,
+    val showsUpdateCard: Boolean,
+    val historyIsSeparateSection: Boolean
+)
+
+fun highFidelitySettingsLayout(): HighFidelitySettingsLayout = HighFidelitySettingsLayout(
+    showsRoseMark = true,
+    showsUpdateCard = true,
+    historyIsSeparateSection = true
+)
+
+data class HighFidelityPlayerLayout(
+    val darkSurface: Boolean,
+    val showsProgressAndFullscreenControls: Boolean,
+    val showsSourceAndEpisodeSurface: Boolean
+)
+
+fun highFidelityPlayerLayout(): HighFidelityPlayerLayout = HighFidelityPlayerLayout(
+    darkSurface = true,
+    showsProgressAndFullscreenControls = true,
+    showsSourceAndEpisodeSurface = true
+)
 
 fun highFidelitySettingsTitle(): String = "应用更新"
 
