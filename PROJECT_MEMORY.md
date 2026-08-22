@@ -4,10 +4,11 @@
 
 - VersionCode `80`, versionName `0.8.17`, package `com.lovelyreader`, label `老婆的小营地`.
 - The page-level high-fidelity pass now covers bookshelf, book search/featured, book detail, reader, drama home/detail/player/download layouts and settings/update. Reader intentionally omits the global bookshelf/drama switch and bottom app navigation.
-- Release artifact: root `老婆的小营地-v0.8.17.apk`, SHA-256 `6F34557B48FD5A7A6AD5E704AB62F97D963C420DDCCB290A892DD7AFF8E0E383`; debug artifact: root `老婆的小营地-debug-v0.8.17.apk`, SHA-256 `89E3892D5E44C308616794FE86CF90F86421A3E38F8D9830C57EC7DF8C934DD9`.
+- Release artifact: root `老婆的小营地-v0.8.17.apk`, SHA-256 `C33724864B546BEE9AD3CB7D768B9C3A5DF11E571D28D2B000FB93C6D437889A`; debug artifact: root `老婆的小营地-debug-v0.8.17.apk`, SHA-256 `C5629842311EB433DE1301C1B896CA542E1D94065A00A3680A533C4E315E3986`.
 - `compileDebugKotlin`, `assembleDebug` and `assembleRelease` passed from the source tree. ASCII copy `C:\CodexTemp\lovely-hf-final-20260822` passed the full debug unit suite: 268 tests, 0 failures, 0 errors, 8 skipped.
 - MuMu Android 12 `emulator-5554` (720×1280, 9:16) installed the debug APK and passed screenshot/UI-tree smoke for bookshelf, search, featured results, book detail scroll, reader, drama home and settings. Evidence: `docs/ui/evidence/20260822-high-fidelity/`.
 - The current device did not obtain a usable drama result during this run; drama detail/player/download real-source playback remains an explicit live-site limitation, not a claimed pass.
+- Visual follow-up: MuMu 720×1280 exposed a clipped experience switch in search/detail headers. The final source uses `HeaderTrailing` with a 112dp inline switch for those pages and retains the full 220dp switch on shelf/drama home; audit screenshots are in `docs/ui/evidence/20260822-high-fidelity/`.
 
 ## Latest UI Audit: 2026-08-22 — high-fidelity restoration is still incomplete
 

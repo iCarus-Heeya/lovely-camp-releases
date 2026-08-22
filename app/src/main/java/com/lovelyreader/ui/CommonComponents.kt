@@ -80,7 +80,7 @@ fun HighFidelityHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 18.dp),
+            .padding(horizontal = if (trailing != null) 12.dp else 24.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onBack != null) {
@@ -114,13 +114,16 @@ fun HighFidelityHeader(
                 color = appColors().ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = (if (trailing != null) Modifier.width(120.dp) else Modifier.weight(1f))
+                modifier = Modifier.weight(1f)
                     .padding(horizontal = 4.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
         if (trailing != null) {
-            Box(modifier = Modifier.width(140.dp), contentAlignment = Alignment.Center) {
+            // The concept uses the experience switch in the same chrome row on
+            // browse/detail pages. Reserve its full compact width so it does
+            // not overflow or get clipped on a 9:16 phone viewport.
+            Box(modifier = Modifier.width(112.dp), contentAlignment = Alignment.Center) {
                 trailing()
             }
         } else if (onNotes != null) {

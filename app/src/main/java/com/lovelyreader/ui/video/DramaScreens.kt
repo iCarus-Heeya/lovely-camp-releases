@@ -580,21 +580,24 @@ private fun DramaDetailCompactScreen(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                experienceSwitch()
-            }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
+            // Match the concept chrome: experience switch on the left and the
+            // return affordance on the right, before the detail title.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                OutlinedButton(onClick = onBack, shape = MaterialTheme.shapes.large, border = BorderStroke(1.dp, colors.lineColor), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)) {
-                    Text("‹  返回找剧", color = colors.cocoa)
-                }
-                Text("剧集详情", style = MaterialTheme.typography.titleLarge, color = colors.cocoa)
+                experienceSwitch()
+                OutlinedButton(
+                    onClick = onBack,
+                    shape = MaterialTheme.shapes.large,
+                    border = BorderStroke(1.dp, colors.lineColor),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)
+                ) { Text("返回找剧", color = colors.cocoa) }
             }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text("剧集详情", style = MaterialTheme.typography.headlineLarge, color = colors.cocoa, fontWeight = FontWeight.SemiBold)
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             SoftPanel {
