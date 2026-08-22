@@ -46,9 +46,20 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Forward5
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Replay5
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +97,7 @@ import com.lovelyreader.video.castMediaTarget
 import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.InkWashBackground
 import com.lovelyreader.ui.theme.appColors
+import kotlinx.coroutines.delay
 
 @Composable
 fun DramaScreen(
@@ -823,20 +835,9 @@ fun DramaPlayerScreen(
                     onMediaDiscovered = { candidate -> discoveredMedia = candidate },
                     modifier = Modifier.fillMaxSize()
                 )
-                player != null -> AndroidView(
-                    factory = { viewContext ->
-                        PlayerView(viewContext).apply {
-                            this.player = player
-                            val controls = nativePlayerControls()
-                            useController = true
-                            controllerAutoShow = true
-                            controllerHideOnTouch = controls.hideOnTouch
-                            controllerShowTimeoutMs = controls.showTimeoutMs
-                            setFullscreenButtonClickListener { fullscreen -> showNativeFullscreen = fullscreen }
-                            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                        }
-                    },
-                    update = { it.player = player },
+                player != null -> NativePlayerSurface(
+                    player = player,
+                    onFullscreen = { showNativeFullscreen = true },
                     modifier = Modifier.fillMaxSize()
                 )
                 else -> Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -949,6 +950,115 @@ fun DramaPlayerScreen(
             )
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun NativePlayerSurface(
+    player: ExoPlayer,
+    onFullscreen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var positionMs by remember(player) { mutableStateOf(0L) }
+    var durationMs by remember(player) { mutableStateOf(0L) }
+    var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
+    var draggedProgress by remember(player) { mutableStateOf<Float?>(null) }
+
+    LaunchedEffect(player) {
+        while (true) {
+            positionMs = player.currentPosition.coerceAtLeast(0L)
+            durationMs = player.duration.takeIf { it > 0L } ?: 0L
+            isPlaying = player.isPlaying
+            delay(500)
+        }
+    }
+
+    val progress = draggedProgress ?: if (durationMs > 0L) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    Box(modifier = modifier.background(Color.Black)) {
+        AndroidView(
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    this.player = player
+                    useController = false
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                }
+            },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .align(androidx.compose.ui.Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000))))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Slider(
+                    value = progress,
+                    onValueChange = { draggedProgress = it },
+                    onValueChangeFinished = {
+                        draggedProgress?.let { player.seekTo((it * durationMs).toLong()) }
+                        draggedProgress = null
+                    },
+                    enabled = durationMs > 0L,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color(0xFFE45C45),
+                        inactiveTrackColor = Color.White.copy(alpha = .42f),
+                        disabledThumbColor = Color.White.copy(alpha = .5f),
+                        disabledActiveTrackColor = Color.White.copy(alpha = .32f),
+                        disabledInactiveTrackColor = Color.White.copy(alpha = .18f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(24.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    IconButton(onClick = { player.seekBack() }) {
+                        Icon(Icons.Outlined.Replay5, contentDescription = "后退 5 秒", tint = Color.White)
+                    }
+                    IconButton(onClick = {
+                        if (player.isPlaying) player.pause() else player.play()
+                        isPlaying = player.isPlaying
+                    }) {
+                        Icon(
+                            if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    IconButton(onClick = { player.seekForward() }) {
+                        Icon(Icons.Outlined.Forward5, contentDescription = "前进 5 秒", tint = Color.White)
+                    }
+                    Text(
+                        "${formatVideoTime(positionMs)} / ${formatVideoTime(durationMs)}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onFullscreen) {
+                        Icon(Icons.Outlined.Fullscreen, contentDescription = "全屏", tint = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatVideoTime(milliseconds: Long): String {
+    val totalSeconds = (milliseconds / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds)
+    else "%02d:%02d".format(minutes, seconds)
 }
 
 /** Hosts only the provider's player entry point. It never extracts or rewrites player data. */
