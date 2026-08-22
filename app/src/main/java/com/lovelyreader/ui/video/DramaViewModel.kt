@@ -432,7 +432,7 @@ class DramaViewModel(
             }
             refreshDownloads()
             _selectedTitle.value = _selectedTitle.value.copy(
-                message = if (queued == 0) "所选剧集没有可下载的公开 MP4 地址" else "已将 $queued 集加入下载列表"
+                message = if (queued == 0) noPublicVideoDownloadMessage() else "已将 $queued 集加入下载列表"
             )
         }
     }

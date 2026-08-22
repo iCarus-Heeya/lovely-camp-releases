@@ -28,9 +28,12 @@ fun highFidelityChromePlacement(page: BookPage): HighFidelityChromePlacement = w
 
 data class HighFidelityBookLayout(
     val findBookEntryCount: Int = 0,
+    val showsContinueReadingSection: Boolean = false,
     val discoveryTabs: List<String> = emptyList(),
     val scrollableContent: Boolean = false,
     val primaryActions: List<String> = emptyList(),
+    val readerContentTopInsetDp: Int = 0,
+    val readerContentBottomInsetDp: Int = 0,
     val showsSharedAppChrome: Boolean = true,
     val showsBottomNavigation: Boolean = true,
     val showsPaperDecoration: Boolean = true
@@ -38,7 +41,8 @@ data class HighFidelityBookLayout(
 
 fun highFidelityBookLayout(page: BookPage): HighFidelityBookLayout = when (page) {
     BookPage.Shelf -> HighFidelityBookLayout(
-        findBookEntryCount = 1
+        findBookEntryCount = 1,
+        showsContinueReadingSection = true
     )
     BookPage.Search -> HighFidelityBookLayout(
         discoveryTabs = listOf("搜索", "首页精选", "随便看看")
@@ -48,6 +52,8 @@ fun highFidelityBookLayout(page: BookPage): HighFidelityBookLayout = when (page)
         primaryActions = listOf("加入书架", "打开原站")
     )
     BookPage.Reader -> HighFidelityBookLayout(
+        readerContentTopInsetDp = 78,
+        readerContentBottomInsetDp = 144,
         showsSharedAppChrome = false,
         showsBottomNavigation = false
     )
