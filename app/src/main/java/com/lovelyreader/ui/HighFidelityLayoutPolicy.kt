@@ -22,7 +22,7 @@ enum class HighFidelityChromePlacement {
 
 fun highFidelityChromePlacement(page: BookPage): HighFidelityChromePlacement = when (page) {
     BookPage.Shelf -> HighFidelityChromePlacement.BelowHeader
-    BookPage.Search, BookPage.Detail -> HighFidelityChromePlacement.BelowHeader
+    BookPage.Search, BookPage.Detail -> HighFidelityChromePlacement.HeaderTrailing
     BookPage.Reader -> HighFidelityChromePlacement.Hidden
 }
 

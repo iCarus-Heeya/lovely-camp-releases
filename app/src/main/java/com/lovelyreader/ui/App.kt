@@ -185,6 +185,14 @@ fun LovelyReaderApp(
             compactWidth = 220.dp
         )
     }
+    val renderInlineExperienceSwitch: @Composable () -> Unit = {
+        AppExperienceSwitch(
+            selected = experience,
+            onSelected = { experience = it },
+            compact = true,
+            compactWidth = 112.dp
+        )
+    }
     val browseScreen: @Composable () -> Unit = {
         SearchScreen(
             results = searchResults,
@@ -209,7 +217,7 @@ fun LovelyReaderApp(
             onCancelDiscoveryLoads = { viewModel.cancelDiscoveryLoads() },
             onOpenResult = { result -> viewModel.navigateToDetail(result) },
             onAddResultToShelf = { result -> viewModel.startDownloadToShelf(result) },
-            experienceSwitch = renderExperienceSwitch,
+            experienceSwitch = renderInlineExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
         )
     }
@@ -303,7 +311,7 @@ fun LovelyReaderApp(
                 }
             },
             loadDetail = { viewModel.loadDetail(current.result) },
-            experienceSwitch = renderExperienceSwitch,
+            experienceSwitch = renderInlineExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
             )
         }

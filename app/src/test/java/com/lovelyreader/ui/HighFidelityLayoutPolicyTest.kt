@@ -10,8 +10,8 @@ class HighFidelityLayoutPolicyTest {
     @Test
     fun `experience switch follows page specific concept placement`() {
         assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Shelf))
-        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Search))
-        assertEquals(HighFidelityChromePlacement.BelowHeader, highFidelityChromePlacement(BookPage.Detail))
+        assertEquals(HighFidelityChromePlacement.HeaderTrailing, highFidelityChromePlacement(BookPage.Search))
+        assertEquals(HighFidelityChromePlacement.HeaderTrailing, highFidelityChromePlacement(BookPage.Detail))
         assertEquals(HighFidelityChromePlacement.Hidden, highFidelityChromePlacement(BookPage.Reader))
     }
     @Test

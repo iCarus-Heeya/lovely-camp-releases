@@ -376,10 +376,11 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
             item {
-                HighFidelityHeader(title = "帮老婆找书", onBack = onBack)
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    experienceSwitch?.invoke()
-                }
+                HighFidelityHeader(
+                    title = "帮老婆找书",
+                    onBack = onBack,
+                    trailing = experienceSwitch
+                )
                 HighFidelityDiscoveryTabs(
                     selected = mode.label,
                     labels = listOf("搜索", "首页精选", "随便看看"),
@@ -648,10 +649,11 @@ fun BookDetailScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
             ) {
             item {
-                HighFidelityHeader(title = "书籍详情", onBack = onBack)
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    experienceSwitch?.invoke()
-                }
+                HighFidelityHeader(
+                    title = "书籍详情",
+                    onBack = onBack,
+                    trailing = experienceSwitch
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(22.dp),
