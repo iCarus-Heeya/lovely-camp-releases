@@ -656,3 +656,10 @@ Last known verified release state:
 - GitHub delivery completed: source `main` is synchronized with the high-fidelity implementation and its release record; release `v0.8.16+79` keeps the updater-compatible asset `lovely-camp-v0.8.16.apk` with SHA-256 `C79BF1F5FA2575252F879B040AD759BB93E6F58FA4078D1BCD30C775C3BEA673`. Release notes contain only user-facing changes.
 - MuMu Android 12 serial `127.0.0.1:16416` installed the final Debug APK. Screenshots verified the shared paper shell, real `南部档案` poster/metadata, source selector, episode grid, player video frame, settings version history, and system Back from player to detail. No crash/ANR observed. First book search took about 30 seconds on the emulator before returning 20 results; keep this as a network-latency limitation rather than claiming instant loading.
 - Any unresolved device or live-site issue remains a limitation in `docs/ui/release-record.md`; nothing from this project belongs in worklog/timesheet/reporting.
+
+## Latest Update: 2026-08-22 High-fidelity completeness follow-up
+
+- Found and fixed two completeness gaps during final page audit: compact drama detail now renders the batch download action tied to `onEnqueueSelected`, and playback state/header preserves the drama name alongside the episode label.
+- Current root APKs: `老婆的小营地-v0.8.17.apk` SHA-256 `DCEE9C037946100334FAAA63236727F60F0142544DAA5C783CB5A69070EF0516`; `老婆的小营地-debug-v0.8.17.apk` SHA-256 `3ED3A1FB594593F04596FBF1D05A26AF6425F5E3612451FA5282CA688EFAABB0`.
+- Verification: source `compileDebugKotlin`, `assembleDebug`, `assembleRelease` succeeded; ASCII copy `C:\CodexTemp\lovely-hf-audit-20260822` full unit tests passed with 270 tests, 0 failures, 0 errors, 8 skipped; release APK v2 signature/package metadata verified.
+- MuMu `emulator-5554` Android 12 720x1280 installed the latest Debug package and cold-started shelf/drama home; live drama detail/player/download remains a known source-network limitation, not claimed as passed.

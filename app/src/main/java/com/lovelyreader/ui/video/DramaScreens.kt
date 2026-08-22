@@ -648,6 +648,20 @@ private fun DramaDetailCompactScreen(
                 Text("点集号播放；如来源提供公开 MP4，选中后可加入下载。", style = MaterialTheme.typography.bodySmall, color = colors.softGray)
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Button(
+                onClick = onEnqueueSelected,
+                enabled = batchDownloadEnabled(selectedEpisodeIds.size),
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.roseBeige,
+                    contentColor = Color.White,
+                    disabledContainerColor = colors.almond,
+                    disabledContentColor = colors.softGray
+                )
+            ) { Text(selectedEpisodeDownloadLabel(selectedEpisodeIds.size)) }
+        }
         items(episodes, key = { it.id }) { episode ->
             val chosen = episode.id in selectedEpisodeIds
             Card(
@@ -771,7 +785,7 @@ fun DramaPlayerScreen(
         if (shouldConfigureCast(castableMedia)) {
             castController.setMedia(
                 media = castableMedia,
-                title = playback.episode?.label ?: "正在播放的剧集",
+                title = dramaPlayerHeaderLabel(playback.titleName, playback.episode?.label),
                 currentPositionMs = { player?.currentPosition ?: 0L },
                 onRemotePlaybackStarted = { player?.pause() },
                 onLocalFallback = { player?.play() },
@@ -798,7 +812,7 @@ fun DramaPlayerScreen(
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)
             ) { Text("‹  返回选集") }
-            Text(playback.episode?.label ?: "视频播放", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(dramaPlayerHeaderLabel(playback.titleName, playback.episode?.label), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = androidx.compose.ui.Alignment.Center) {
             when {
