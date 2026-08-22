@@ -14,6 +14,18 @@ enum class BookPage {
     Reader
 }
 
+enum class HighFidelityChromePlacement {
+    BelowHeader,
+    HeaderTrailing,
+    Hidden
+}
+
+fun highFidelityChromePlacement(page: BookPage): HighFidelityChromePlacement = when (page) {
+    BookPage.Shelf -> HighFidelityChromePlacement.BelowHeader
+    BookPage.Search, BookPage.Detail -> HighFidelityChromePlacement.BelowHeader
+    BookPage.Reader -> HighFidelityChromePlacement.Hidden
+}
+
 data class HighFidelityBookLayout(
     val findBookEntryCount: Int = 0,
     val discoveryTabs: List<String> = emptyList(),

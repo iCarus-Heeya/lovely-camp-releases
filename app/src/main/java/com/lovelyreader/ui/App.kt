@@ -5,12 +5,15 @@ import android.content.pm.ApplicationInfo
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +40,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lovelyreader.data.AndroidLibraryPersistence
 import com.lovelyreader.data.LibraryRepository
@@ -170,6 +177,14 @@ fun LovelyReaderApp(
             onNotes = { viewModel.openNotes() }
         )
     }
+    val renderExperienceSwitch: @Composable () -> Unit = {
+        AppExperienceSwitch(
+            selected = experience,
+            onSelected = { experience = it },
+            compact = true,
+            compactWidth = 220.dp
+        )
+    }
     val browseScreen: @Composable () -> Unit = {
         SearchScreen(
             results = searchResults,
@@ -194,6 +209,7 @@ fun LovelyReaderApp(
             onCancelDiscoveryLoads = { viewModel.cancelDiscoveryLoads() },
             onOpenResult = { result -> viewModel.navigateToDetail(result) },
             onAddResultToShelf = { result -> viewModel.startDownloadToShelf(result) },
+            experienceSwitch = renderExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
         )
     }
@@ -229,12 +245,6 @@ fun LovelyReaderApp(
             )
         }
         Column(modifier = Modifier.fillMaxSize().background(appColors().cream)) {
-        if (shouldShowSharedAppChrome(screen)) {
-            AppExperienceSwitch(
-                selected = experience,
-                onSelected = { experience = it }
-            )
-        }
         BackHandler(
             enabled = experience == AppExperience.Reader && screen !is Screen.Reader && readerBackDestination(screen) != null
         ) {
@@ -247,7 +257,8 @@ fun LovelyReaderApp(
         if (experience == AppExperience.Drama) {
             DramaScreen(
                 viewModel = dramaViewModel,
-                debugDiagnostics = if (isDebugBuild) videoPageFetcher::diagnostics else null
+                debugDiagnostics = if (isDebugBuild) videoPageFetcher::diagnostics else null,
+                experienceSwitch = renderExperienceSwitch
             )
         } else {
         // Keep this exact call-site for Search and Detail; branch-local calls recreate it.
@@ -270,6 +281,7 @@ fun LovelyReaderApp(
             },
             onDeleteBook = { book -> viewModel.deleteBook(book.id) },
             onSettings = { viewModel.openNotes() },
+            experienceSwitch = renderExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Shelf) }
         )
 
@@ -291,6 +303,7 @@ fun LovelyReaderApp(
                 }
             },
             loadDetail = { viewModel.loadDetail(current.result) },
+            experienceSwitch = renderExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Search) }
             )
         }
@@ -379,44 +392,83 @@ fun LovelyReaderApp(
 @Composable
 private fun AppExperienceSwitch(
     selected: AppExperience,
-    onSelected: (AppExperience) -> Unit
+    onSelected: (AppExperience) -> Unit,
+    compact: Boolean = false,
+    compactWidth: Dp = 220.dp
 ) {
     Surface(
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
+        if (compact) {
+            CompactExperienceSwitch(
+                selected = selected,
+                onSelected = onSelected,
+                width = compactWidth
+            )
+        } else Row(
+            modifier = if (compact) {
+                Modifier.width(compactWidth).padding(vertical = 4.dp)
+            } else {
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)
+            },
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (selected == AppExperience.Reader) {
                 Button(
                     onClick = {},
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
                     shape = MaterialTheme.shapes.large,
                     colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
-                ) { Text("小书架") }
+                ) { Text("小书架", fontSize = if (compact) 14.sp else 16.sp) }
             } else {
                 OutlinedButton(
                     onClick = { onSelected(AppExperience.Reader) },
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
                     shape = MaterialTheme.shapes.large
-                ) { Text("小书架") }
+                ) { Text("小书架", fontSize = if (compact) 14.sp else 16.sp) }
             }
             if (selected == AppExperience.Drama) {
                 Button(
                     onClick = {},
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
                     shape = MaterialTheme.shapes.large,
                     colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
-                ) { Text("追剧") }
+                ) { Text("追剧", fontSize = if (compact) 14.sp else 16.sp) }
             } else {
                 OutlinedButton(
                     onClick = { onSelected(AppExperience.Drama) },
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(if (compact) 40.dp else 48.dp),
                     shape = MaterialTheme.shapes.large
-                ) { Text("追剧") }
+                ) { Text("追剧", fontSize = if (compact) 14.sp else 16.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactExperienceSwitch(
+    selected: AppExperience,
+    onSelected: (AppExperience) -> Unit,
+    width: Dp
+) {
+    Row(
+        modifier = Modifier.width(width).height(40.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        val itemWidth = (width - 6.dp) / 2
+        listOf(AppExperience.Reader to "小书架", AppExperience.Drama to "追剧").forEach { (value, label) ->
+            val active = selected == value
+            Surface(
+                modifier = Modifier.width(itemWidth).fillMaxHeight().clickable(enabled = !active) { onSelected(value) },
+                shape = RoundedCornerShape(22.dp),
+                color = if (active) appColors().roseDust else Color.Transparent,
+                border = if (active) null else BorderStroke(1.dp, appColors().roseBeige)
+            ) {
+                Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    Text(label, color = if (active) Color.White else appColors().roseDust, fontSize = 14.sp)
+                }
             }
         }
     }
@@ -492,6 +544,7 @@ private fun BookDetailScreenWrapper(
     onAddToShelf: () -> Unit,
     onOpenOriginal: () -> Unit,
     loadDetail: suspend () -> Unit,
+    experienceSwitch: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {}
 ) {
     LaunchedEffect(result.bookUrl) {
@@ -503,6 +556,7 @@ private fun BookDetailScreenWrapper(
         onBack = onBack,
         onAddToShelf = onAddToShelf,
         onOpenOriginal = onOpenOriginal,
+        experienceSwitch = experienceSwitch,
         bottomBar = bottomBar
     )
 }
