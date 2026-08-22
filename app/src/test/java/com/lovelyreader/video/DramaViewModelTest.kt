@@ -227,6 +227,7 @@ class DramaViewModelTest {
 
         assertEquals(media, viewModel.playback.value.media)
         assertEquals(episode, viewModel.playback.value.episode)
+        assertEquals(title.name, viewModel.playback.value.titleName)
         assertTrue(viewModel.playback.value.message.isEmpty())
         assertEquals(episode.id, library.recentEpisodeId)
     }
