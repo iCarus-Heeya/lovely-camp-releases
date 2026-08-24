@@ -4,15 +4,16 @@ package com.lovelyreader.update
 const val UPDATE_AUTOMATIC_CHECK_INTERVAL_MILLIS = 24L * 60L * 60L * 1_000L
 
 /**
- * Keeps automatic update checks useful without turning normal app launches into a mobile-data poll.
- * Manual checks intentionally bypass this policy.
+ * Runs a lightweight release discovery check on any validated network. The check is still
+ * rate-limited so a normal app launch does not repeatedly poll the feed; downloading and
+ * installing an APK remain explicit user actions. Manual checks intentionally bypass this policy.
  */
 fun shouldRunAutomaticUpdateCheck(
     nowMillis: Long,
     lastAutomaticAttemptMillis: Long?,
-    isUnmetered: Boolean
+    isValidatedNetwork: Boolean
 ): Boolean {
-    if (!isUnmetered) return false
+    if (!isValidatedNetwork) return false
     val last = lastAutomaticAttemptMillis ?: return true
     return nowMillis >= last && nowMillis - last >= UPDATE_AUTOMATIC_CHECK_INTERVAL_MILLIS
 }

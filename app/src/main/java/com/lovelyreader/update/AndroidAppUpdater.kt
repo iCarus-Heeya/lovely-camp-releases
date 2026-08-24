@@ -33,15 +33,16 @@ class AndroidAppUpdater(private val context: Context) {
     )
 
     /**
-     * A best-effort background check for a normal app launch. It never runs on cellular data and
-     * returns null when the network or daily policy says to wait. Failures are intentionally left
-     * for the manual Settings action, so they cannot interrupt the reading experience.
+     * A best-effort background check for a normal app launch. It runs on any validated network,
+     * including mobile data, but only once per day. It returns null when the network or daily
+     * policy says to wait. Failures are intentionally left for the manual Settings action, so they
+     * cannot interrupt the reading experience.
      */
     suspend fun checkAutomatically(nowMillis: Long = System.currentTimeMillis()): UpdateCheckResult? {
         if (!shouldRunAutomaticUpdateCheck(
                 nowMillis = nowMillis,
                 lastAutomaticAttemptMillis = lastAutomaticAttemptMillis(),
-                isUnmetered = hasValidatedUnmeteredNetwork()
+                isValidatedNetwork = hasValidatedNetwork()
             )
         ) return null
 
@@ -68,17 +69,79 @@ class AndroidAppUpdater(private val context: Context) {
         }
     }
 
-    suspend fun downloadAndPrepare(manifest: UpdateManifest): Result<File> = withContext(Dispatchers.IO) {
+    suspend fun downloadAndPrepare(
+        manifest: UpdateManifest,
+        onProgress: suspend (UpdateDownloadProgress) -> Unit = {}
+    ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val target = File(context.cacheDir, "update-${manifest.versionCode}.apk")
             val partial = File(target.parentFile, "${target.name}.part")
-            followHttpsRedirects(manifest.apkUrl).inputStream.use { input ->
-                partial.outputStream().use { input.copyTo(it) }
+            val connection = followHttpsRedirects(manifest.apkUrl)
+            val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
+            var downloadedBytes = 0L
+            var lastProgressAtNanos = 0L
+            val startedAtNanos = System.nanoTime()
+            try {
+                onProgress(
+                    UpdateDownloadProgress(
+                        downloadedBytes = 0L,
+                        totalBytes = totalBytes,
+                        speedBytesPerSecond = 0L
+                    )
+                )
+                connection.inputStream.use { input ->
+                    partial.outputStream().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            downloadedBytes += read
+                            val nowNanos = System.nanoTime()
+                            if (nowNanos - lastProgressAtNanos >= PROGRESS_INTERVAL_NANOS) {
+                                onProgress(
+                                    UpdateDownloadProgress(
+                                        downloadedBytes = downloadedBytes,
+                                        totalBytes = totalBytes,
+                                        speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, nowNanos)
+                                    )
+                                )
+                                lastProgressAtNanos = nowNanos
+                            }
+                        }
+                    }
+                }
+            } finally {
+                connection.disconnect()
             }
+            val finishedAtNanos = System.nanoTime()
+            onProgress(
+                UpdateDownloadProgress(
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos)
+                )
+            )
+            onProgress(
+                UpdateDownloadProgress(
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos),
+                    phase = UpdateDownloadPhase.Verifying
+                )
+            )
             val actual = sha256(partial)
             require(actual.equals(manifest.sha256, ignoreCase = true)) { "安装包校验失败" }
             if (target.exists()) target.delete()
             require(partial.renameTo(target)) { "无法准备安装包" }
+            onProgress(
+                UpdateDownloadProgress(
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos),
+                    phase = UpdateDownloadPhase.Ready
+                )
+            )
             target
         }
     }
@@ -107,13 +170,11 @@ class AndroidAppUpdater(private val context: Context) {
         return value.takeIf { it != NO_AUTOMATIC_ATTEMPT }
     }
 
-    private fun hasValidatedUnmeteredNetwork(): Boolean {
+    private fun hasValidatedNetwork(): Boolean {
         val manager = context.getSystemService(ConnectivityManager::class.java) ?: return false
         val network = manager.activeNetwork ?: return false
         val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        val unmeteredTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-        return unmeteredTransport && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun followHttpsRedirects(address: String): HttpURLConnection {
@@ -157,9 +218,15 @@ class AndroidAppUpdater(private val context: Context) {
         digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    private fun averageSpeed(downloadedBytes: Long, startedAtNanos: Long, nowNanos: Long): Long {
+        val elapsedNanos = (nowNanos - startedAtNanos).coerceAtLeast(1L)
+        return ((downloadedBytes.toDouble() * 1_000_000_000.0) / elapsedNanos).toLong()
+    }
+
     private companion object {
         const val AUTOMATIC_CHECK_PREFERENCES = "lovely_camp_update"
         const val AUTOMATIC_CHECK_ATTEMPT_KEY = "last_automatic_attempt_millis"
         const val NO_AUTOMATIC_ATTEMPT = -1L
+        const val PROGRESS_INTERVAL_NANOS = 150_000_000L
     }
 }

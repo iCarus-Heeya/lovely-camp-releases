@@ -56,4 +56,20 @@ class ReaderTextPagerTest {
         assertEquals(8, readerPageForProgress(progress = 2f, pagesSize = 9))
         assertEquals(0, readerPageForProgress(progress = 0.5f, pagesSize = 1))
     }
+
+    @Test
+    fun centerTapRestoresChromeAfterCatalogJump() {
+        assertEquals(
+            ReaderChromeState(showChrome = true, showBottomMenu = true),
+            readerChromeStateAfterCenterTap(ReaderChromeState(showChrome = false, showBottomMenu = true))
+        )
+        assertEquals(
+            ReaderChromeState(showChrome = true, showBottomMenu = true),
+            readerChromeStateAfterCenterTap(ReaderChromeState(showChrome = true, showBottomMenu = false))
+        )
+        assertEquals(
+            ReaderChromeState(showChrome = true, showBottomMenu = false),
+            readerChromeStateAfterCenterTap(ReaderChromeState(showChrome = true, showBottomMenu = true))
+        )
+    }
 }

@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import com.lovelyreader.source.HttpTextClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -72,20 +73,42 @@ class AndroidVideoPageFetcher(
         defaultRequest: suspend () -> String,
         trustedRequest: suspend () -> String
     ): String {
-        val preflight = trustedDnsFallback.preflight(url)
+        val preflight = try {
+            trustedDnsFallback.preflight(url)
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            requestDiagnostics.record(method, url, "可信 DNS 预检失败：${error.javaClass.simpleName ?: "未知异常"}")
+            null
+        }
         if (preflight != null) {
             requestDiagnostics.record(method, url, "系统 DNS 返回异常地址，正在使用可信 DNS 回退")
-            return fetch(method, url, trustedRequest).also {
-                requestDiagnostics.record(method, url, "可信 DNS 回退成功")
+            return try {
+                fetch(method, url, trustedRequest).also {
+                    requestDiagnostics.record(method, url, "可信 DNS 回退成功")
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                requestDiagnostics.record(method, url, "可信 DNS 回退失败：${error.javaClass.simpleName ?: "未知异常"}")
+                throw error
             }
         }
         return try {
             fetch(method, url, defaultRequest)
         } catch (error: Throwable) {
-            if (error !is java.net.SocketTimeoutException && error !is java.net.ConnectException && error !is java.net.UnknownHostException) throw error
+            if (!isTransientVideoNetworkFailure(error)) throw error
             requestDiagnostics.record(method, url, "系统网络连接失败，正在使用可信 DNS 回退")
-            fetch(method, url, trustedRequest).also {
-                requestDiagnostics.record(method, url, "可信 DNS 回退成功")
+            try {
+                fetch(method, url, trustedRequest).also {
+                    requestDiagnostics.record(method, url, "可信 DNS 回退成功")
+                }
+            } catch (fallbackError: Throwable) {
+                if (fallbackError is CancellationException) throw fallbackError
+                requestDiagnostics.record(
+                    method,
+                    url,
+                    "可信 DNS 回退失败：${fallbackError.javaClass.simpleName ?: "未知异常"}"
+                )
+                throw fallbackError
             }
         }
     }
@@ -174,7 +197,7 @@ internal suspend fun recordVideoRequestFailureDiagnostics(
     probe: VideoHostConnectivityProbe
 ) {
     diagnostics.record(method, url, "请求失败：${error.javaClass.simpleName ?: "未知异常"}")
-    if (error is java.net.SocketTimeoutException || error is java.net.ConnectException || error is java.net.UnknownHostException) {
+    if (isTransientVideoNetworkFailure(error)) {
         probe.inspect(url).forEach { detail -> diagnostics.record("网络检测", url, detail) }
     }
 }

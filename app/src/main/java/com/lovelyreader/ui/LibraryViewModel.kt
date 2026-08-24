@@ -688,7 +688,7 @@ internal class LibraryViewModel(
             book = result.toBook(),
             sourceUrl = result.bookUrl,
             latestChapter = result.latestChapter,
-            offlineLabel = "仅打开原站"
+            offlineLabel = "暂不支持站内下载"
         )
     }
 }

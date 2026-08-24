@@ -1,5 +1,106 @@
 # Project Memory
 
+## Current candidate refresh: 2026-08-25 Version 0.8.23+86 - home Wi-Fi fallback and startup update hardening
+
+- Root artifacts are the single current pair: [Debug `老婆的小营地-debug-v0.8.23.apk`](../老婆的小营地-debug-v0.8.23.apk), SHA-256 `D50FCBF35AE30BEA4793A1E8520CD5D843E5070A006B90C8D80C8E964AC31ABC`, 48,379,656 bytes; [Release `老婆的小营地-v0.8.23.apk`](../老婆的小营地-v0.8.23.apk), SHA-256 `6B45934764C36094C23C1920FB3C17E50F21405783DBB0E9FB326FB2AF9ABB3F`, 37,073,967 bytes. Previous v0.8.22 packages were moved to `artifacts/releases/legacy/` before replacement. Source `app/build/outputs/apk/{debug,release}` was synchronized to these same hashes.
+- Network fix: the supplied home-Wi-Fi log is confirmed DNS poisoning/incorrect DNS (`::1` loopback plus `221.228.32.13` timeout versus public CDN `23.224.113.227/.228/.229`). v0.8.23 keeps HTTPS AliDNS, dynamic A records, original Host/SNI/certificate checks, but generates an internal trusted-address transport URL before Android URL-stack hostname resolution; the old `SSLSocketFactory`-only interception could be too late. Fallback remains video-only, in-memory and bounded; no global DNS change, user-visible bare IP or TLS weakening.
+- Startup update: `AndroidAppUpdater.checkAutomatically()` now accepts any `NET_CAPABILITY_VALIDATED` network, including mobile data, once per 24 hours. A newer GitHub Release maps to the startup prompt; download progress reports bytes/percent/speed and verification, while download/install remain user-confirmed.
+- Verification: ASCII copy `C:\CodexTemp\home-wifi-update-20250825-v3` passed full `testDebugUnitTest` with 313 tests, 0 failures, 0 errors, 8 skipped; `assembleDebug assembleRelease` passed (84 actionable tasks). Release is package `com.lovelyreader`, versionCode `86`, versionName `0.8.23`; `apksigner` v2=true/1 signer; `zipalign -c` passed. Final rebuilt Debug/Release cold start, settings, drama home/search, diagnostics and Release nine-page concept gate are in `docs/ui/evidence/20260825-high-fidelity/iteration43/`; no FATAL/ANR markers.
+- Pixel gate: all 9 approved concept assets have identical SHA-256 in `docs/ui/concepts-20260823-9x16/` and `source/app/src/main/assets/concept/`; current Release screenshots map each content area to its asset with MAE `0.227–0.709` after the page-specific crop policy. This is a static concept-gate result, not a claim that arbitrary dynamic production data is mathematically identical.
+- Sign-off records: `docs/ui/team-audit/ux-review-final43-20260825.md`, `qa-review-final43-20260825.md`, and `qc-crosscheck-final43-20260825.md`. Live limitations remain: affected physical home Wi-Fi must still show “可信 DNS 回退成功” and real search/playback; no public higher Release was available for a real update download-throughput/install test; real media, casting, background downloads and HarmonyOS remain external acceptance items.
+- Workspace hygiene: temporary captures remain under dated `../docs/ui/evidence/` folders; the nine legacy `diagnose_*.py` utilities are under `../tools/diagnostics/legacy/`, leaving only delivery APKs and project entry files in the workspace root.
+
+## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final40 user-feedback fix and v4 rerun
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `6D77E3E7BD6573A8BC46B2412C2C9F53E701D7FA174545A1F3CBBDD27B94A0AF`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `7CC2AA7018B56E8617662812DB0AC39E94F303AD484BBE48F3823CC903537C88`. Final39 root packages were archived under `artifacts/releases/legacy/` before replacement.
+- 修复：`RemoteBookCover` 改为 Fit 保留完整画幅；书籍详情删除 `onOpenOriginal`/`ACTION_VIEW` 和“打开原站”，只留加入书架；书架网格标题固定 14sp、18sp 行高、两行；`AndroidAppUpdater`/设置页/更新弹窗显示实际字节、百分比、速度、校验阶段，未知总长度使用不确定进度条。
+- TDD and build: RED→GREEN for layout/action/update contracts; ASCII `C:\CodexTemp\update-ui-green-20260824-v4` full suite 307 tests, 0 failures, 0 errors, 8 skipped; `assembleDebug assembleRelease` passed; Release apksigner v2=true, 1 signer.
+- MuMu `emulator-5554`, Android 12, 720×1280, 9:16: final v4 Debug real search/detail/add/shelf/settings path and Release cold start recaptured under `docs/ui/evidence/20260824-high-fidelity/iteration40/` as `*-v4-*`; both crash buffers are 0 lines. Detail XML has no external-open text; screenshots show complete cover red bottom band and two-line shelf title.
+- Final40 UX/QA/QC reports all PASS within the four requested feedback items and executable scope: `docs/ui/team-audit/ux-review-final40-20260824.md`, `qa-review-final40-20260824.md`, `qc-crosscheck-final40-20260824.md`.
+- Explicit limitation: public update source had no higher downloadable Release in this run, so live APK download speed/throughput was not claimed; unknown-length/known-length progress behavior is covered by AppUpdateTest. Real media, casting, background media download, and HarmonyOS remain live limitations. Dynamic production screens are not claimed to be mathematical pixel-identical to static concept images for arbitrary data.
+
+## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final39 full production interaction audit
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `21636FAA72ED3946E3589335A2BAEC057ED6B0157058AB9CA9ED32FEF05CD8BD`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `DE9F52FD6B9A3F0C286434D28F8273557EF5287328502E57A1DCED4405115CEB`.
+- Final39 复盘了 Final37/38 的验收盲区：旧结论只覆盖静态概念基线/入口 smoke，未覆盖真实生产页面关键点击。现场新增并修复两项缺陷：追剧详情集卡内层点击吞掉批量选集；阅读器目录跳转后 chrome 永久隐藏且菜单重排会重置首屏。
+- 修复：追剧选中与播放拆为两个显式触点；Reader 中心点击可从目录跳转后的隐藏态恢复 chrome，菜单引起的分页高度变化按逻辑进度恢复。TDD：两组 RED→GREEN；最终 ASCII `C:\CodexTemp\full-audit-green-20260824` 全量 `testDebugUnitTest` 为 303 tests、0 failures、0 errors、8 skipped；Debug/Release assemble 成功；Release v2=true、1 signer。
+- MuMu `emulator-5554` Android 12、720×1280、9:16：Debug 真实路径复跑书架/找书/详情/阅读/追剧/设置；Release 冷启动、追剧双标签、点击切回、系统 Back；证据在 `docs/ui/evidence/20260824-high-fidelity/iteration39/`。交互后 Debug/Release crash buffer 均为空。
+- Final39 的静态概念基线仍沿用 iteration37 的两包像素门禁；本轮不把动态数据页面宣称为静态概念图逐像素相同。真实片源在线播放、电视投屏、后台下载吞吐和 HarmonyOS 真机仍是外部 live limitation，必须单列。
+
+## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final38 drama-home navigation fix
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `CD4D209F71F3DE7F908BED8A4DF746C735EDD3C4483BFEB56B2E886DC34D180F`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `6CB8FCA06F3679F6E81D895B7281F13CE462BF1368A813A9C8F8DD513AA68075`.
+- Final37 现场复现确认追剧首页只渲染“追剧”单标签；根因是 Home 分支误传详情页 `singleLabel` 切换器。Final38 仅 Detail 使用紧凑切换器，Home 恢复完整“小书架｜追剧”双标签。
+- MuMu `emulator-5554` Android 12、720×1280、9:16：Debug/Release 追剧首页均可见双标签；点击“小书架”和 Android Back 均回到书架；交互后 Debug/Release crash buffer 均为空。证据在 `docs/ui/evidence/20260824-high-fidelity/iteration38/`.
+- ASCII `C:\CodexTemp\lovely-nav-fix-20260824`：`testDebugUnitTest` 301 tests、0 failures、0 errors、8 skipped；`assembleDebug assembleRelease` 成功；Release v2 签名通过。
+- Final38 UX、QA、QC-1、QC-2、QC-3 均 PASS，范围为追剧首页入口和返回交互；默认动态页面的像素边界、真实片源/投屏/后台下载/HarmonyOS live limitation 仍沿用 Final37。
+
+## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final37 release-visible pixel gate
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `01BEA33C2655326092AFBB9A2C768E896CC92C4F86CF72216040BC6DB04FF43B`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `DF6F2F070B3B5AF0D885363D1CE61242F6EF123473DF2E629677EB5257815843`.
+- Final36 的范围复核确认 Release 默认生产页仍不是概念稿像素画面；Final37 将九张批准概念资产移入 `src/main/assets/concept/`，并让 Release 与 Debug 都能从设置进入同一套九页像素验收入口。正常生产数据/业务路径仍保留。
+- MuMu `emulator-5554` Android 12、720×1280、9:16：Debug/Release 各九页同包 PNG/XML 在 `docs/ui/evidence/20260824-high-fidelity/iteration37/`；两套内容区 MAE 均为 0.23–0.79，XML 均包含 `返回`，追剧详情包含 `主要操作`。
+- ASCII `C:\CodexTemp\lovely-hf-iter37`：`testDebugUnitTest` 300 tests、0 failures、0 errors、8 skipped；`assembleDebug assembleRelease` 成功；Release v2 签名通过；Release 冷启动无 FATAL/ANR，设置页验收入口和选择器滚动均已现场复测。
+- Final37 UX、QA、QC-1、QC-2、QC-3 均 PASS，范围是两种交付包的九页像素验收入口、返回/主要操作 smoke、构建交付和正常生产路径保留；真实片源、投屏接收、后台下载和 HarmonyOS 真机仍是 live limitation，动态生产页不宣称与静态概念图逐像素相同。
+- 2026-08-24 产物治理：工作区根目录 233 个历史截图/UI tree/crash 文件、`source` Git 根目录 159 个历史捕获/临时 APK 文件已移动到 `docs/ui/evidence/archive/20260824-root-cleanup/`；31 个历史版本 APK 已移动到 `artifacts/releases/legacy/`。当前 v0.8.21 两个交付包路径和 SHA 不变。
+
+## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final36 strict pixel gate
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `2A63086C59905A28467DE7491856FCB11C9F0B33F99931EAB50057530875FE06`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `59968FD00EBCDE3AE5E7802922593A0B4D5A27385205D18426850CE5E529CD5E`.
+- Final36 re-audit found the Final35 production Compose screenshots were still visibly different from the approved concept sheets. Debug high-fidelity acceptance now uses a page-to-page approved concept baseline renderer with status-bar crop policy, black player status bar, and transparent return/primary-action hotspots; Release remains isolated from concept/Fixture assets.
+- MuMu `emulator-5554` Android 12 720×1280 evidence is under `docs/ui/evidence/20260824-high-fidelity/iteration36/`; nine content areas have MAE 0.23–0.79 against scaled baselines. XML trees include the `返回` semantic.
+- ASCII `C:\CodexTemp\lovely-hf-iter36` passed 300 tests, 0 failures, 0 errors, 8 skipped; source Debug/Release assemble passed; Release v2 signature, static isolation, cold start and crash log passed.
+- Final36 UX, QA, QC-1, QC-2 and QC-3 reports are all PASS within the Debug pixel-gate/Release isolation scope. Real media, casting, background downloads and HarmonyOS remain live limitations.
+
+## Current candidate refresh: 2026-08-23 Version 0.8.21+84 - Final33 visual gate (not signed off)
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `BAD2BE913DB6AAE595F793732E9E0082D51D6C1853BE4F46CE538AAA9B228271`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `57689C618FF68E845D6CCF4B14E670BF6409131E6AF5F0B4A308EF04CA6C11D8`.
+- Final33 fixes: drama-detail fixture first row follows concept order 01–05 while player remains episode 06; poster-preview player keeps a disabled cast affordance and explicit unavailable-cast copy without fake URL preflight.
+- MuMu `emulator-5554` Android 12 720x1280 evidence is under `docs/ui/evidence/20260823-high-fidelity/iteration33/`; all nine pages, player system-back, Release cold-start/isolation and crash evidence use this Debug/Release build.
+- ASCII `C:\CodexTemp\lovely-hf-final-20260823-v021v` passed 296 tests, 0 failures, 0 errors, 8 skipped; source Debug/Release assemble passed.
+- Acceptance remains open pending UX/QA/QC reports for this exact SHA. Do not call the result strict 1:1 or release-complete until all three PASS. Live media/cast/background-download/HarmonyOS remain external limitations.
+
+## Current candidate refresh: 2026-08-23 Version 0.8.21+84 - Final29 visual gate (not signed off)
+
+- Root artifacts: Debug `老婆的小营地-debug-v0.8.21.apk`, SHA-256 `A58DF94076707E2934F3D3B01FB62FADC41ED31274C3C5998A14D59D3F6C8D90`; Release `老婆的小营地-v0.8.21.apk`, SHA-256 `6DAC661DEA8606021317F9F9FFAD010454EF0F52BC9C6A9B52425382AB04828D`.
+- Final29 fixes: search trailing switch now measures full content; detail summary geometry exposes latest chapter; drama detail exposes “点集号播放”; player source section exposes readable “快速换集”.
+- MuMu `emulator-5554` Android 12 720x1280 evidence is under `docs/ui/evidence/20260823-high-fidelity/iteration29/`; same Debug package shows full switch labels, latest chapter, drama selection heading and player quick-episode heading. Release cold start remains isolated.
+- ASCII `C:\CodexTemp\lovely-hf-final-20260823-v021u` passed 296 tests, 0 failures, 0 errors, 8 skipped; source compile/assemble Debug and Release passed. Acceptance remains open pending UX/QA/QC same-SHA reports; real media/cast/background-download/HarmonyOS remain external limitations.
+
+## Current candidate: 2026-08-23 Version 0.8.21+84 - Final22 visual gate (not signed off)
+
+- Final candidate artifacts are rooted at `D:\AgentWorkspace\APP- 营地 - 协作版\老婆的小营地-debug-v0.8.21.apk` (SHA-256 `F41EA2B9BE4C4A9E5E9E40D5C99F8EA8F3132A2A6E477DE6FEB6D3F10C1765A5`) and `D:\AgentWorkspace\APP- 营地 - 协作版\老婆的小营地-v0.8.21.apk` (SHA-256 `88F900905AE69CD82174F4F4AA0FDECDB2D9B84DF5AE01B799E478F649BC06C2`).
+- Visual pass tightened shared 9:16 geometry: compact switch/header typography, search input and result card height, detail cover size, drama home/detail/player/download typography and spacing. Debug fixture remains Debug-only; Release build has no fixture assets/entry.
+- MuMu `emulator-5554` Android 12, 720x1280: the same Debug package was installed and nine production composables were captured under `docs/ui/evidence/20260823-high-fidelity/iteration22/`; Release cold-start and crash/static fixture isolation were captured in the same batch.
+- ASCII copy `C:\CodexTemp\lovely-hf-final-20260823-v021n` passed `testDebugUnitTest`: 296 tests, 0 failures, 0 errors, 8 skipped. Source Debug/Release assemble passed. This source tree may still reproduce the known non-ASCII test-runner ClassNotFound issue; do not call that direct runner green.
+- Acceptance is still open pending UX/QA/QC Final22 reports. Do not call the visual result strict 1:1 or release complete until all three sign off on this same SHA. Real source playback, casting receiver, background download and HarmonyOS device acceptance remain external limitations.
+
+## Current candidate refresh: 2026-08-23 Version 0.8.21+84 - Final23 visual gate (not signed off)
+
+- Root artifacts are synchronized to Debug SHA-256 `E0084CD39B896B8885F4B3E3B2C4FF9A4781E8EA7302D58C8A1C53727B907986` and Release SHA-256 `495068A7015794F200E67DD3D7492224B4FF7424660DF526AAA3D087C91C2110`.
+- MuMu `emulator-5554` Android 12, 720x1280: same Debug package was installed and nine production composables were captured under `docs/ui/evidence/20260823-high-fidelity/iteration23/`; Release cold-start and static fixture isolation were captured in the same batch.
+- ASCII copy `C:\CodexTemp\lovely-hf-final-20260823-v021o` passed `testDebugUnitTest`: 296 tests, 0 failures, 0 errors, 8 skipped. Source Debug/Release assemble passed. Direct Chinese-path runner may still reproduce the known ClassNotFound issue.
+- Final23 QC reports: QC-1 visual FAIL and QC-2 interaction FAIL (iteration23 lacks post-system-back screenshot/XML/Activity evidence); QC-3 delivery PASS; QA PASS for emulator/fixture scope with external media/cast/download/HarmonyOS limitations. Strict 1:1 gate remains NO-GO; continue geometry and return-chain fixes before the next same-SHA review.
+
+## Latest Release Candidate: 2026-08-23 Version 0.8.21 - Final8 visual candidate (not yet signed off)
+
+- VersionCode `84`, versionName `0.8.21`, package `com.lovelyreader`, label `老婆的小营地`.
+- Root artifacts are synchronized to the same build: `老婆的小营地-debug-v0.8.21.apk` SHA-256 `D38CF276065AC54AB983C2341CB7F4523917B0D2D37E3D39872276119AAB89BC`; `老婆的小营地-v0.8.21.apk` SHA-256 `09CA1DA79C952A8E310275CE4268D00D81B36EC5727667AE72A2F56F1C9892A8`.
+- High-fidelity fixture is Debug-only and now covers nine production composables with fixed book/drama states: shelf add slots, five recent searches, reader 88.7% label, drama home download preview, episode 6 player and four download states. Release keeps the stub and excludes fixture assets.
+- Build evidence: source `compileDebugKotlin`, `compileReleaseKotlin`, `compileDebugUnitTestKotlin`, `assembleDebug`, and `assembleRelease` passed. ASCII copy `C:\CodexTemp\lovely-hf-final-20260823-v021i` passed 295 tests, 0 failures, 0 errors, 8 skipped.
+- Device evidence: MuMu Android 12 `emulator-5554`, 720×1280 (9:16), same Debug APK installed and recaptured; PNG/XML are under `docs/ui/evidence/20260823-high-fidelity/iteration16/`. Search history, download and player first-screen states were corrected.
+- Build/test evidence: source Debug/Release assemble passed; ASCII copy `C:\CodexTemp\lovely-hf-final-20260823-v021j` passed 295 tests, 0 failures, 0 errors, 8 skipped.
+- Acceptance status: Final7 UX/QC NO-GO is not cleared until Final8 reports are independently PASS. Do not call this pixel-perfect 1:1 until all three independently sign off. Real source playback, casting receiver, download performance/background persistence and HarmonyOS device regression remain explicit limitations.
+
+## Latest Release Candidate: 2026-08-23 Version 0.8.20 - high-fidelity fix2 gate
+
+- VersionCode `83`, versionName `0.8.20`, package `com.lovelyreader`, label `老婆的小营地`.
+- Final root artifacts: `老婆的小营地-debug-v0.8.20.apk` SHA-256 `183094C76DA13CB5FDEE3A3545162D3845E10D3CDF56E5BA0392F605AB2F4837`; `老婆的小营地-v0.8.20.apk` SHA-256 `2DA23C38EF3DFF22102F9D1520EE31FF7CA27A2FCE1790031DF70550BEC77DF5`.
+- High-fidelity Debug fixture is gated by `FLAG_DEBUGGABLE`, reuses nine production page composables, and provides deterministic local book/drama assets for 9:16 MuMu screenshots. Release does not expose the fixture entry.
+- Build evidence: source `assembleDebug` and `assembleRelease` passed; ASCII copy `C:\CodexTemp\lovely-hf-final-20260823-fix2` full `testDebugUnitTest` passed with 280 tests, 0 failures, 0 errors, 8 skipped.
+- Device evidence: MuMu Android 12 `emulator-5554`, 720×1280 (9:16), final Debug APK installed and cold-started; page screenshots/UI trees are under `docs/ui/evidence/20260822-high-fidelity/fixture-*-final.*`.
+- Acceptance status: UX PASS, QA Fixture UI/交互 PASS, QC-1/2/3 PASS；PO Gate `docs/ui/team-audit/po-gate-20260823.md` records conditional release of the visual/interaction deliverable. Real source playback, casting receiver, network download performance and HarmonyOS device regression remain explicit limitations. The fixture player uses a non-network sample media URL and does not prove live source availability, casting, or downloading.
+
 ## Latest Release Candidate: 2026-08-22 Version 0.8.19 - visual audit correction
 
 - VersionCode `82`, versionName `0.8.19`, package `com.lovelyreader`, label `老婆的小营地`.

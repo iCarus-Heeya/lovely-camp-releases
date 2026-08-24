@@ -6,12 +6,12 @@ import org.junit.Test
 
 class UpdateCheckPolicyTest {
     @Test
-    fun `automatic check runs on unmetered network when no prior attempt exists`() {
+    fun `automatic check runs on any validated network when no prior attempt exists`() {
         assertTrue(
             shouldRunAutomaticUpdateCheck(
                 nowMillis = 1_000L,
                 lastAutomaticAttemptMillis = null,
-                isUnmetered = true
+                isValidatedNetwork = true
             )
         )
     }
@@ -22,25 +22,36 @@ class UpdateCheckPolicyTest {
             shouldRunAutomaticUpdateCheck(
                 nowMillis = UPDATE_AUTOMATIC_CHECK_INTERVAL_MILLIS - 1L,
                 lastAutomaticAttemptMillis = 0L,
-                isUnmetered = true
+                isValidatedNetwork = true
             )
         )
         assertTrue(
             shouldRunAutomaticUpdateCheck(
                 nowMillis = UPDATE_AUTOMATIC_CHECK_INTERVAL_MILLIS,
                 lastAutomaticAttemptMillis = 0L,
-                isUnmetered = true
+                isValidatedNetwork = true
             )
         )
     }
 
     @Test
-    fun `automatic check never runs on a metered network`() {
+    fun `automatic check waits when the active network is not validated`() {
         assertFalse(
             shouldRunAutomaticUpdateCheck(
                 nowMillis = Long.MAX_VALUE,
                 lastAutomaticAttemptMillis = null,
-                isUnmetered = false
+                isValidatedNetwork = false
+            )
+        )
+    }
+
+    @Test
+    fun `validated mobile network is eligible for startup discovery`() {
+        assertTrue(
+            shouldRunAutomaticUpdateCheck(
+                nowMillis = 1_000L,
+                lastAutomaticAttemptMillis = null,
+                isValidatedNetwork = true
             )
         )
     }

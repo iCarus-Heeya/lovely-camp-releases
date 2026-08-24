@@ -6,6 +6,14 @@ import org.junit.Test
 
 class DramaUiCopyTest {
     @Test
+    fun downloadStatusChipsUseVisibleSemanticIcons() {
+        assertEquals("schedule", downloadStatusIconName(com.lovelyreader.video.VideoDownloadStatus.QUEUED))
+        assertEquals("cloud_download", downloadStatusIconName(com.lovelyreader.video.VideoDownloadStatus.DOWNLOADING))
+        assertEquals("check_circle", downloadStatusIconName(com.lovelyreader.video.VideoDownloadStatus.COMPLETED))
+        assertEquals("error_outline", downloadStatusIconName(com.lovelyreader.video.VideoDownloadStatus.FAILED))
+    }
+
+    @Test
     fun dramaStatusMessagesAreChineseForUnavailableAndCastFallbackStates() {
         listOf(
             dramaStatusCopy(DramaStatus.RootUnavailable),
@@ -36,6 +44,15 @@ class DramaUiCopyTest {
     @Test
     fun unknownDownloadPathIsNotExposedAsTechnicalIdentifier() {
         assertEquals("正在准备下载", userFacingDownloadLocation(null))
+    }
+
+    @Test
+    fun completedDownloadLocationUsesFriendlyCopyInsteadOfProviderUri() {
+        val label = userFacingDownloadLocation("content://downloads/fixture-episode-02.mp4")
+
+        assertEquals("已保存到本地", label)
+        assertFalse(label.contains("content://", ignoreCase = true))
+        assertFalse(label.contains(".mp4", ignoreCase = true))
     }
 
     @Test

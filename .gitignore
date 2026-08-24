@@ -8,3 +8,9 @@ release-signing.properties
 *.apk
 *.apks
 *.aab
+
+# Root-level QA captures are transient; keep accepted evidence under the
+# project-local docs/ui/evidence/<date>/iterationN/ directories instead.
+/*.png
+/*.xml
+/*.log

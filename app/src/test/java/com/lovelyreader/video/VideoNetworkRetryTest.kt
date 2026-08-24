@@ -1,6 +1,8 @@
 package com.lovelyreader.video
 
+import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
+import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -44,5 +46,25 @@ class VideoNetworkRetryTest {
 
         assertTrue(failed)
         assertEquals(1, attempts)
+    }
+
+    @Test
+    fun `routing and TLS handshake failures retry because they are transport failures`() = runTest {
+        listOf(NoRouteToHostException("poisoned Wi-Fi route"), SSLHandshakeException("blocked TLS"))
+            .forEach { failure ->
+                var attempts = 0
+                val result = retryVideoPageRequest(
+                    request = {
+                        attempts++
+                        if (attempts == 1) throw failure
+                        "<html>ok</html>"
+                    },
+                    onRetry = { _, _ -> },
+                    wait = {}
+                )
+
+                assertEquals("<html>ok</html>", result)
+                assertEquals(2, attempts)
+            }
     }
 }
