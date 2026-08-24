@@ -103,6 +103,7 @@ data class DramaPlaybackUiState(
     val titleName: String? = null,
     val episode: VideoEpisode? = null,
     val media: VideoMediaLink? = null,
+    val posterUrl: String? = null,
     val isLoading: Boolean = false,
     val message: String = ""
 )
@@ -304,10 +305,12 @@ class DramaViewModel(
             return
         }
         val titleName = selectedTitle.value.detail?.title?.name
+        val posterUrl = selectedTitle.value.detail?.title?.posterUrl
         val request = ++playbackRequest
         _playback.value = DramaPlaybackUiState(
             titleName = titleName,
             episode = episode,
+            posterUrl = posterUrl,
             isLoading = true,
             message = "正在准备播放…"
         )
@@ -321,13 +324,14 @@ class DramaViewModel(
                 DramaPlaybackUiState(
                     titleName = titleName,
                     episode = episode,
+                    posterUrl = posterUrl,
                     message = "该播放源没有提供可公开播放的媒体地址。请返回选集后尝试其他播放源。"
                 )
             } else {
                 library.recordSourceResult(selectedTitle.value.detail?.title?.id ?: return@launch, source.id, success = true)
                 library.recordViewing(selectedTitle.value.detail?.title ?: return@launch, source, episode)
                 _recentViewing.value = library.recentViewing()
-                DramaPlaybackUiState(titleName = titleName, episode = episode, media = media)
+                DramaPlaybackUiState(titleName = titleName, episode = episode, media = media, posterUrl = posterUrl)
             }
         }
     }

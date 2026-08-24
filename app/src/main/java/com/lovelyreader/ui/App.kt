@@ -1,9 +1,7 @@
 package com.lovelyreader.ui
 
-import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -16,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.AlertDialog
@@ -72,8 +71,11 @@ import com.lovelyreader.video.VideoDownloadCoordinator
 import com.lovelyreader.video.VideoLibraryRepository
 import com.lovelyreader.video.VideoSiteResolver
 import com.lovelyreader.update.AndroidAppUpdater
+import com.lovelyreader.update.UpdateDownloadPhase
+import com.lovelyreader.update.UpdateDownloadProgress
 import com.lovelyreader.update.UpdateHistoryEntry
 import com.lovelyreader.update.UpdateCheckResult
+import com.lovelyreader.update.formatUpdateDownloadProgress
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -121,6 +123,7 @@ fun LovelyReaderApp(
     val appUpdater = remember(appContext) { AndroidAppUpdater(appContext) }
     var updateMessage by rememberSaveable { mutableStateOf("") }
     var updateAvailable by remember { mutableStateOf<com.lovelyreader.update.UpdateManifest?>(null) }
+    var updateDownloadProgress by remember { mutableStateOf<UpdateDownloadProgress?>(null) }
     var updateHistory by remember { mutableStateOf<List<UpdateHistoryEntry>>(emptyList()) }
     var updateHistoryMessage by rememberSaveable { mutableStateOf("") }
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
@@ -135,6 +138,7 @@ fun LovelyReaderApp(
         )
     }
     var experience by rememberSaveable { mutableStateOf(AppExperience.Reader) }
+    var showVisualFixture by rememberSaveable { mutableStateOf(false) }
 
     val screen by viewModel.screen.collectAsState()
     val shelfBooks by viewModel.shelfBooks.collectAsState()
@@ -170,6 +174,33 @@ fun LovelyReaderApp(
         }
     }
 
+    fun startUpdateDownload(manifest: com.lovelyreader.update.UpdateManifest) {
+        updateMessage = "正在下载更新包…"
+        updateDownloadProgress = UpdateDownloadProgress(
+            downloadedBytes = 0L,
+            totalBytes = null,
+            speedBytesPerSecond = 0L,
+            phase = UpdateDownloadPhase.Downloading
+        )
+        videoScope.launch {
+            appUpdater.downloadAndPrepare(manifest) { progress ->
+                withContext(Dispatchers.Main.immediate) {
+                    updateDownloadProgress = progress
+                }
+            }.onSuccess { apk ->
+                updateMessage = "下载完成，正在准备安装…"
+                if (appUpdater.canRequestInstallPackages()) appUpdater.install(apk)
+                else {
+                    updateMessage = "请先允许本应用安装更新包，然后再次点击安装"
+                    appUpdater.openInstallPermissionSettings()
+                }
+            }.onFailure {
+                updateDownloadProgress = null
+                updateMessage = it.message ?: "更新包下载失败"
+            }
+        }
+    }
+
     val mainBottomBar: @Composable (MainTab) -> Unit = { selected ->
         MainBottomBar(
             selected = selected,
@@ -184,8 +215,8 @@ fun LovelyReaderApp(
             selected = experience,
             onSelected = { experience = it },
             compact = true,
-            compactWidth = 220.dp,
-            compactHeight = 24.dp
+            compactWidth = highFidelityPhoneMetrics().shelfExperienceSwitchWidthDp.dp,
+            compactHeight = 30.dp
         )
     }
     val renderInlineExperienceSwitch: @Composable () -> Unit = {
@@ -193,8 +224,37 @@ fun LovelyReaderApp(
             selected = experience,
             onSelected = { experience = it },
             compact = true,
-            compactWidth = 112.dp,
-            compactHeight = 24.dp
+            compactWidth = highFidelityPhoneMetrics().inlineExperienceSwitchWidthDp.dp,
+            compactHeight = 30.dp
+        )
+    }
+    val renderDetailToggle: @Composable () -> Unit = {
+        AppExperienceSwitch(
+            selected = experience,
+            onSelected = { experience = it },
+            compact = true,
+            compactWidth = highFidelityDetailChrome().switchWidthDp.dp,
+            compactHeight = 24.dp,
+            showLabels = false
+        )
+    }
+    val renderDramaHomeExperienceSwitch: @Composable () -> Unit = {
+        AppExperienceSwitch(
+            selected = experience,
+            onSelected = { experience = it },
+            compact = true,
+            compactWidth = highFidelityPhoneMetrics().dramaHomeExperienceSwitchWidthDp.dp,
+            compactHeight = 30.dp
+        )
+    }
+    val renderDramaDetailExperienceSwitch: @Composable () -> Unit = {
+        AppExperienceSwitch(
+            selected = experience,
+            onSelected = { experience = it },
+            compact = true,
+            compactWidth = highFidelityPhoneMetrics().dramaDetailExperienceSwitchWidthDp.dp,
+            compactHeight = 30.dp,
+            singleLabel = "追剧"
         )
     }
     val browseScreen: @Composable () -> Unit = {
@@ -222,7 +282,7 @@ fun LovelyReaderApp(
             onOpenResult = { result -> viewModel.navigateToDetail(result) },
             onAddResultToShelf = { result -> viewModel.startDownloadToShelf(result) },
             experienceSwitch = renderInlineExperienceSwitch,
-            bottomBar = { mainBottomBar(MainTab.Search) }
+            bottomBar = {}
         )
     }
 
@@ -235,21 +295,41 @@ fun LovelyReaderApp(
             AlertDialog(
                 onDismissRequest = { showUpdatePrompt = false },
                 title = { Text("发现新版本 ${manifest.versionName}") },
-                text = { Text(manifest.notes.ifBlank { "包含体验改进，可在设置中随时更新。" }) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(manifest.notes.ifBlank { "包含体验改进，可在设置中随时更新。" })
+                        updateDownloadProgress?.let { progress ->
+                            Text(
+                                formatUpdateDownloadProgress(progress),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = appColors().roseDust
+                            )
+                            if (progress.phase == UpdateDownloadPhase.Downloading) {
+                                progress.fraction?.let { fraction ->
+                                    androidx.compose.material3.LinearProgressIndicator(
+                                        progress = { fraction },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = appColors().roseDust,
+                                        trackColor = appColors().almond.copy(alpha = .65f)
+                                    )
+                                } ?: androidx.compose.material3.LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = appColors().roseDust,
+                                    trackColor = appColors().almond.copy(alpha = .65f)
+                                )
+                            }
+                        }
+                        updateMessage.takeIf { it.isNotBlank() }?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = appColors().cocoa.copy(alpha = .72f))
+                        }
+                    }
+                },
                 confirmButton = {
                     Button(onClick = {
-                        showUpdatePrompt = false
-                        videoScope.launch {
-                            updateMessage = "正在下载更新包…"
-                            appUpdater.downloadAndPrepare(manifest).onSuccess { apk ->
-                                if (appUpdater.canRequestInstallPackages()) appUpdater.install(apk)
-                                else {
-                                    updateMessage = "请先允许本应用安装更新包，然后再次点击安装"
-                                    appUpdater.openInstallPermissionSettings()
-                                }
-                            }.onFailure { updateMessage = it.message ?: "更新包下载失败" }
-                        }
-                    }) { Text("立即更新") }
+                        startUpdateDownload(manifest)
+                    }, enabled = updateDownloadProgress?.phase != UpdateDownloadPhase.Downloading) {
+                        Text(if (updateDownloadProgress?.phase == UpdateDownloadPhase.Ready) "再次下载" else "立即更新")
+                    }
                 },
                 dismissButton = {
                     OutlinedButton(onClick = { showUpdatePrompt = false }) { Text("稍后") }
@@ -258,7 +338,10 @@ fun LovelyReaderApp(
         }
         Column(modifier = Modifier.fillMaxSize().background(appColors().cream)) {
         BackHandler(
-            enabled = experience == AppExperience.Reader && screen !is Screen.Reader && readerBackDestination(screen) != null
+            enabled = !showVisualFixture &&
+                experience == AppExperience.Reader &&
+                screen !is Screen.Reader &&
+                (readerBackDestination(screen) != null || shouldConsumeRootSystemBack(screen))
         ) {
             viewModel.navigateBack()
         }
@@ -266,11 +349,21 @@ fun LovelyReaderApp(
             modifier = if (shouldShowSharedAppChrome(screen)) Modifier.fillMaxWidth().weight(1f)
             else Modifier.fillMaxSize()
         ) {
-        if (experience == AppExperience.Drama) {
+        if (showVisualFixture) {
+            HighFidelityDebugFixtureScreen(
+                onClose = { showVisualFixture = false },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (experience == AppExperience.Drama) {
             DramaScreen(
                 viewModel = dramaViewModel,
                 debugDiagnostics = if (isDebugBuild) videoPageFetcher::diagnostics else null,
-                experienceSwitch = renderExperienceSwitch
+                experienceSwitch = renderDramaHomeExperienceSwitch,
+                detailExperienceSwitch = renderDramaDetailExperienceSwitch,
+                onHomeBack = {
+                    experience = AppExperience.Reader
+                    viewModel.openShelf()
+                }
             )
         } else {
         // Keep this exact call-site for Search and Detail; branch-local calls recreate it.
@@ -307,19 +400,12 @@ fun LovelyReaderApp(
             onAddToShelf = {
                 viewModel.startDownloadToShelf(current.result, selectedDetail?.book)
             },
-            onOpenOriginal = {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(current.result.bookUrl))
-                    )
-                }
-            },
             loadDetail = { viewModel.loadDetail(current.result) },
             // The v3 detail concept keeps the experience toggle compact in
             // the top chrome; the full-width switch is reserved for shelf and
             // drama home where it is the primary page control.
-            experienceSwitch = renderInlineExperienceSwitch,
-            bottomBar = { mainBottomBar(MainTab.Search) }
+            experienceSwitch = renderDetailToggle,
+            bottomBar = {}
             )
         }
 
@@ -354,9 +440,11 @@ fun LovelyReaderApp(
             onThemeChanged = { viewModel.setAppTheme(it) },
             updateMessage = updateMessage,
             updateAvailable = updateAvailable,
+            updateDownloadProgress = updateDownloadProgress,
             onCheckUpdate = {
                 videoScope.launch {
                     updateAvailable = null
+                    updateDownloadProgress = null
                     updateMessage = "正在检查更新…"
                     when (val result = appUpdater.check()) {
                         UpdateCheckResult.FeedNotConfigured -> updateMessage = "更新服务尚未发布，当前版本仍可正常使用"
@@ -370,18 +458,7 @@ fun LovelyReaderApp(
                     }
                 }
             },
-            onInstallUpdate = { manifest ->
-                videoScope.launch {
-                    updateMessage = "正在下载更新包…"
-                    appUpdater.downloadAndPrepare(manifest).onSuccess { apk ->
-                        if (appUpdater.canRequestInstallPackages()) appUpdater.install(apk)
-                        else {
-                            updateMessage = "请先允许本应用安装更新包，然后再次点击安装"
-                            appUpdater.openInstallPermissionSettings()
-                        }
-                    }.onFailure { updateMessage = it.message ?: "更新包下载失败" }
-                }
-            },
+            onInstallUpdate = ::startUpdateDownload,
             updateHistory = updateHistory,
             updateHistoryMessage = updateHistoryMessage,
             onLoadUpdateHistory = {
@@ -394,7 +471,10 @@ fun LovelyReaderApp(
                         updateHistoryMessage = "版本记录暂不可用"
                     }
                 }
-            }
+            },
+            onOpenVisualFixture = if (highFidelityDebugFixtureEnabled(isDebugBuild)) {
+                { showVisualFixture = true }
+            } else null
         )
         }
         }
@@ -410,14 +490,18 @@ private fun AppExperienceSwitch(
     onSelected: (AppExperience) -> Unit,
     compact: Boolean = false,
     compactWidth: Dp = 220.dp,
-    compactHeight: Dp = 24.dp
+    compactHeight: Dp = 24.dp,
+    showLabels: Boolean = true,
+    singleLabel: String? = null
 ) {
     UnifiedExperienceSwitch(
         selected = selected,
         onSelected = onSelected,
         width = if (compact) compactWidth else null,
         compact = compact,
-        compactHeight = compactHeight
+        compactHeight = compactHeight,
+        showLabels = showLabels,
+        singleLabel = singleLabel
     )
 }
 
@@ -427,7 +511,9 @@ private fun UnifiedExperienceSwitch(
     onSelected: (AppExperience) -> Unit,
     width: Dp?,
     compact: Boolean,
-    compactHeight: Dp
+    compactHeight: Dp,
+    showLabels: Boolean,
+    singleLabel: String?
 ) {
     val height = if (compact) compactHeight else 56.dp
     Surface(
@@ -435,9 +521,43 @@ private fun UnifiedExperienceSwitch(
             .height(height)
             .padding(vertical = if (compact) 0.dp else 4.dp),
         shape = RoundedCornerShape(height / 2),
-        color = appColors().warmWhite.copy(alpha = .58f),
+        color = if (!showLabels) appColors().cocoa else appColors().warmWhite.copy(alpha = .58f),
         border = BorderStroke(1.dp, appColors().lineColor)
     ) {
+        if (!showLabels) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(selected) {
+                        detectTapGestures {
+                            onSelected(if (selected == AppExperience.Reader) AppExperience.Drama else AppExperience.Reader)
+                        }
+                    },
+                contentAlignment = if (selected == AppExperience.Reader) androidx.compose.ui.Alignment.CenterEnd else androidx.compose.ui.Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(2.dp)
+                        .size(height - 4.dp)
+                        .background(Color.White, androidx.compose.foundation.shape.CircleShape)
+                )
+            }
+            return@Surface
+        }
+        if (singleLabel != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(appColors().roseDust, RoundedCornerShape(height / 2))
+                    .pointerInput(singleLabel) {
+                        detectTapGestures { onSelected(AppExperience.Drama) }
+                    },
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                Text(singleLabel, color = Color.White, fontSize = if (compact) 14.sp else 17.sp)
+            }
+            return@Surface
+        }
         Row(modifier = Modifier.fillMaxSize().padding(2.dp)) {
             listOf(AppExperience.Reader to "小书架", AppExperience.Drama to "追剧").forEach { (value, label) ->
                 val active = selected == value
@@ -526,7 +646,6 @@ private fun BookDetailScreenWrapper(
     detail: BookDetail?,
     onBack: () -> Unit,
     onAddToShelf: () -> Unit,
-    onOpenOriginal: () -> Unit,
     loadDetail: suspend () -> Unit,
     experienceSwitch: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {}
@@ -539,7 +658,6 @@ private fun BookDetailScreenWrapper(
         detail = detail,
         onBack = onBack,
         onAddToShelf = onAddToShelf,
-        onOpenOriginal = onOpenOriginal,
         experienceSwitch = experienceSwitch,
         bottomBar = bottomBar
     )

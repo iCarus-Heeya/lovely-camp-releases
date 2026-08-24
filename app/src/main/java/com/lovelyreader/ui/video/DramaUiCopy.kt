@@ -17,10 +17,19 @@ internal fun dramaStatusCopy(status: DramaStatus): String = when (status) {
 
 internal fun selectedEpisodeDownloadLabel(count: Int): String = "下载已选 ${count.coerceAtLeast(0)} 集"
 
+/** Semantic icon identity kept separate from the visual glyph so tests can
+ * verify that every download state remains understandable without color. */
+internal fun downloadStatusIconName(status: com.lovelyreader.video.VideoDownloadStatus): String = when (status) {
+    com.lovelyreader.video.VideoDownloadStatus.QUEUED -> "schedule"
+    com.lovelyreader.video.VideoDownloadStatus.DOWNLOADING -> "cloud_download"
+    com.lovelyreader.video.VideoDownloadStatus.COMPLETED -> "check_circle"
+    com.lovelyreader.video.VideoDownloadStatus.FAILED -> "error_outline"
+}
+
 internal fun noPublicVideoDownloadMessage(): String = "所选剧集没有可下载的公开视频"
 
 internal fun userFacingDownloadLocation(location: String?): String =
-    location?.takeIf { it.isNotBlank() } ?: "正在准备下载"
+    location?.takeIf { it.isNotBlank() }?.let { "已保存到本地" } ?: "正在准备下载"
 
 /** Download metadata stores opaque provider IDs; never render their URL-bearing prefix. */
 internal fun downloadSourceDisplayLabel(sourceId: String): String {

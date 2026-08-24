@@ -1,8 +1,6 @@
 package com.lovelyreader.video
 
-import java.net.ConnectException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
+import java.io.IOException
 import kotlinx.coroutines.delay
 
 private const val VIDEO_REQUEST_MAX_ATTEMPTS = 3
@@ -27,6 +25,10 @@ internal suspend fun <T> retryVideoPageRequest(
     error("video retry loop terminated unexpectedly")
 }
 
-private fun isTransientVideoNetworkFailure(error: Throwable): Boolean = error is SocketTimeoutException ||
-    error is ConnectException ||
-    error is UnknownHostException
+/**
+ * Transport failures can be wrapped differently by Android's URL stack. Keep the fallback
+ * limited to IO failures (including DNS, routing, TLS and premature EOF) so parser/business
+ * errors are still surfaced immediately.
+ */
+internal fun isTransientVideoNetworkFailure(error: Throwable): Boolean =
+    generateSequence(error) { it.cause }.any { candidate -> candidate is IOException }

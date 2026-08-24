@@ -91,4 +91,34 @@ class AppUpdateTest {
 
         assertTrue(result is UpdateAvailability.Invalid)
     }
+
+    @Test
+    fun `download progress exposes real percent transfer and speed`() {
+        val progress = UpdateDownloadProgress(
+            downloadedBytes = 512L * 1024L,
+            totalBytes = 1024L * 1024L,
+            speedBytesPerSecond = 256L * 1024L
+        )
+
+        assertEquals(50, progress.percent)
+        assertEquals("512 KB / 1 MB", formatUpdateDownloadTransfer(progress))
+        assertEquals("256 KB/s", formatUpdateDownloadSpeed(progress.speedBytesPerSecond))
+        assertEquals(
+            "下载中 · 50% · 512 KB / 1 MB · 256 KB/s",
+            formatUpdateDownloadProgress(progress)
+        )
+    }
+
+    @Test
+    fun `download progress stays indeterminate when server omits content length`() {
+        val progress = UpdateDownloadProgress(
+            downloadedBytes = 1536L,
+            totalBytes = null,
+            speedBytesPerSecond = 0L
+        )
+
+        assertEquals(null, progress.percent)
+        assertEquals("1 KB", formatUpdateDownloadTransfer(progress))
+        assertEquals("计算中…", formatUpdateDownloadSpeed(progress.speedBytesPerSecond))
+    }
 }

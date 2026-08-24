@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,9 +30,19 @@ import java.net.URL
 /** A small, memory-only poster loader for metadata already exposed by a title card. */
 @Composable
 fun DramaPoster(url: String?, title: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val fixtureAsset = url?.takeIf { it.startsWith("fixture://") }?.removePrefix("fixture://")
     val safeUrl = url?.takeIf(::isSafeDramaPosterUrl)
-    val bitmap = produceState<Bitmap?>(initialValue = null, safeUrl) {
-        value = safeUrl?.let { imageUrl -> loadDramaPoster(imageUrl) }
+    val bitmap = produceState<Bitmap?>(initialValue = null, safeUrl, fixtureAsset) {
+        value = fixtureAsset?.let { asset ->
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    context.assets.open("fixture/$asset").use { stream ->
+                        BitmapFactory.decodeStream(stream)?.let(::cropFixturePoster)
+                    }
+                }.getOrNull()
+            }
+        } ?: safeUrl?.let { imageUrl -> loadDramaPoster(imageUrl) }
     }.value
 
     if (bitmap != null) {
@@ -44,6 +55,13 @@ fun DramaPoster(url: String?, title: String, modifier: Modifier = Modifier) {
     } else {
         DramaPosterFallback(title = title, modifier = modifier)
     }
+}
+
+/** Fixture art is stored as a contact sheet so it can be reused by cards; detail needs one poster. */
+private fun cropFixturePoster(bitmap: Bitmap): Bitmap {
+    if (bitmap.width <= 0 || bitmap.height <= bitmap.width * 1.2f) return bitmap
+    val firstPosterHeight = (bitmap.width * 1.02f).toInt().coerceIn(1, bitmap.height)
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, firstPosterHeight, null, true)
 }
 
 fun isSafeDramaPosterUrl(value: String): Boolean {

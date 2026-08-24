@@ -20,6 +20,58 @@ data class UpdateHistoryEntry(
     val notes: String
 )
 
+enum class UpdateDownloadPhase {
+    Downloading,
+    Verifying,
+    Ready
+}
+
+data class UpdateDownloadProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long?,
+    val speedBytesPerSecond: Long,
+    val phase: UpdateDownloadPhase = UpdateDownloadPhase.Downloading
+) {
+    val percent: Int?
+        get() = totalBytes
+            ?.takeIf { it > 0L }
+            ?.let { ((downloadedBytes.coerceAtLeast(0L) * 100L) / it).toInt().coerceIn(0, 100) }
+
+    val fraction: Float?
+        get() = totalBytes
+            ?.takeIf { it > 0L }
+            ?.let { (downloadedBytes.toFloat() / it.toFloat()).coerceIn(0f, 1f) }
+}
+
+internal fun formatUpdateDownloadTransfer(progress: UpdateDownloadProgress): String {
+    val downloaded = formatUpdateDownloadBytes(progress.downloadedBytes)
+    val total = progress.totalBytes?.takeIf { it > 0L }?.let(::formatUpdateDownloadBytes)
+    return if (total == null) downloaded else "$downloaded / $total"
+}
+
+internal fun formatUpdateDownloadSpeed(bytesPerSecond: Long): String {
+    if (bytesPerSecond <= 0L) return "计算中…"
+    return "${formatUpdateDownloadBytes(bytesPerSecond)}/s"
+}
+
+internal fun formatUpdateDownloadProgress(progress: UpdateDownloadProgress): String {
+    val percent = progress.percent?.let { "$it% · " }.orEmpty()
+    val transfer = formatUpdateDownloadTransfer(progress)
+    return when (progress.phase) {
+        UpdateDownloadPhase.Downloading ->
+            "下载中 · $percent$transfer · ${formatUpdateDownloadSpeed(progress.speedBytesPerSecond)}"
+        UpdateDownloadPhase.Verifying -> "正在校验 · $transfer"
+        UpdateDownloadPhase.Ready -> "已下载 · $transfer"
+    }
+}
+
+private fun formatUpdateDownloadBytes(bytes: Long): String {
+    val safeBytes = bytes.coerceAtLeast(0L)
+    if (safeBytes < 1024L) return "$safeBytes B"
+    if (safeBytes < 1024L * 1024L) return "${safeBytes / 1024L} KB"
+    return "${safeBytes / (1024L * 1024L)} MB"
+}
+
 sealed interface UpdateAvailability {
     data object UpToDate : UpdateAvailability
     data class Available(val versionName: String) : UpdateAvailability

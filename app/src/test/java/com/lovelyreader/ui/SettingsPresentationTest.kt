@@ -22,7 +22,7 @@ class SettingsPresentationTest {
             highFidelitySettingsSectionOrder()
         )
         assertEquals("应用更新", highFidelitySettingsTitle())
-        assertTrue(highFidelityUpdateDescription().contains("Wi-Fi"))
+        assertTrue(highFidelityUpdateDescription().contains("已验证网络"))
         assertFalse(highFidelityUpdateDescription().contains("APK"))
         assertFalse(highFidelityUpdateDescription().contains("SHA256"))
     }

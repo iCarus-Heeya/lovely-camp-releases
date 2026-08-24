@@ -100,7 +100,7 @@ class IxdzsSource(
     override suspend fun getDownloadOptions(bookUrl: String): List<DownloadOption> = emptyList()
 
     override suspend fun healthCheck(): SourceHealth {
-        return SourceHealth(sourceId, available = true, message = "可搜索，默认打开原站")
+        return SourceHealth(sourceId, available = true, message = "可搜索，详情与章节能力以实际解析结果为准")
     }
 
     override fun isSafeReadUrl(bookUrl: String): Boolean = safety.isAllowed(bookUrl)
@@ -157,7 +157,7 @@ class IxdzsSource(
                 sourceIds = listOf(sourceId)
             ),
             sourceUrl = url,
-            offlineLabel = "仅打开原站"
+            offlineLabel = "暂不支持站内下载"
         )
     }
 

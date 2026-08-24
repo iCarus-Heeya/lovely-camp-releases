@@ -20,44 +20,83 @@ import com.lovelyreader.ui.theme.appColors
 @Composable
 fun InkWashBackground(
     modifier: Modifier = Modifier,
+    decorationStyle: HighFidelityPaperDecorationStyle = HighFidelityPaperDecorationStyle.Plum,
     content: @Composable BoxScope.() -> Unit
 ) {
     val colors = appColors()
+    val decoration = highFidelityPaperDecoration()
     Box(modifier = modifier.background(colors.cream)) {
         Canvas(Modifier.fillMaxSize()) {
             // The concept art uses a recognisable plum branch rather than two
             // placeholder strokes. Keep it vector-based so it scales cleanly
             // across 9:16 phones while preserving the quiet paper texture.
-            val branch = colors.roseDust.copy(alpha = 0.12f)
-            val branchPath = Path().apply {
-                moveTo(size.width * 0.72f, size.height * 0.015f)
-                cubicTo(size.width * 0.78f, size.height * 0.08f, size.width * 0.88f, size.height * 0.12f, size.width * 1.02f, size.height * 0.18f)
-            }
-            drawPath(branchPath, branch, style = Stroke(width = 5f, cap = StrokeCap.Round))
-            val twigs = listOf(
-                Offset(.78f, .075f) to Offset(.68f, .018f),
-                Offset(.82f, .095f) to Offset(.92f, .025f),
-                Offset(.87f, .125f) to Offset(.76f, .20f),
-                Offset(.93f, .15f) to Offset(1.01f, .08f),
-                Offset(.75f, .055f) to Offset(.84f, -.015f)
-            )
-            twigs.forEach { (from, to) ->
-                drawLine(
-                    branch,
-                    Offset(size.width * from.x, size.height * from.y),
-                    Offset(size.width * to.x, size.height * to.y),
-                    strokeWidth = 2.5f,
-                    cap = StrokeCap.Round
+            // Keep the decorative branch visible on a 9:16 phone viewport.  The
+            // concept uses a quiet but recognisable ink wash; the old alpha was
+            // so faint that the branch disappeared on real devices.
+            // The concept uses a low-contrast ink branch, not a rose-colored
+            // foreground stroke. Keep it neutral so the decoration recedes
+            // behind readable content on every page.
+            val branch = Color(0xFF8F877F).copy(alpha = decoration.branchAlpha)
+            if (decorationStyle == HighFidelityPaperDecorationStyle.Willow) {
+                val willowPath = Path().apply {
+                    moveTo(size.width * .68f, size.height * .02f)
+                    cubicTo(size.width * .78f, size.height * .08f, size.width * .87f, size.height * .18f, size.width * 1.06f, size.height * .31f)
+                }
+                drawPath(willowPath, branch, style = Stroke(width = 4f, cap = StrokeCap.Round))
+                val willowLeaves = listOf(
+                    Triple(.74f, .07f, -36f), Triple(.80f, .11f, 26f),
+                    Triple(.86f, .16f, -28f), Triple(.91f, .20f, 38f),
+                    Triple(.96f, .25f, -34f), Triple(.84f, .25f, 30f),
+                    Triple(.72f, .15f, -44f), Triple(.99f, .15f, 24f),
+                    Triple(.89f, .31f, -22f), Triple(.77f, .28f, 38f)
                 )
+                willowLeaves.forEach { (x, y, angle) ->
+                    val center = Offset(size.width * x, size.height * y)
+                    withTransform({ rotate(angle, center) }) {
+                        drawOval(
+                            Color(0xFF9B9C87).copy(alpha = .17f),
+                            topLeft = Offset(center.x - 5f, center.y - 12f),
+                            size = Size(10f, 24f)
+                        )
+                    }
+                }
+                listOf(.81f to .08f, .91f to .19f, .99f to .25f).forEach { (x, y) ->
+                    drawCircle(Color(0xFFB77F6E).copy(alpha = .22f), radius = 5f, center = Offset(size.width * x, size.height * y))
+                }
+            }
+            val branchPath = Path().apply {
+                moveTo(size.width * 0.58f, size.height * 0.015f)
+                cubicTo(size.width * 0.68f, size.height * 0.055f, size.width * 0.84f, size.height * 0.11f, size.width * 1.04f, size.height * 0.22f)
+            }
+            if (decorationStyle == HighFidelityPaperDecorationStyle.Plum) {
+                drawPath(branchPath, branch, style = Stroke(width = 5f, cap = StrokeCap.Round))
+            }
+            val twigs = listOf(
+                Offset(.68f, .065f) to Offset(.56f, -.005f),
+                Offset(.76f, .085f) to Offset(.90f, .005f),
+                Offset(.84f, .115f) to Offset(.72f, .22f),
+                Offset(.94f, .15f) to Offset(1.04f, .075f),
+                Offset(.63f, .045f) to Offset(.74f, -.02f)
+            )
+            if (decorationStyle == HighFidelityPaperDecorationStyle.Plum) {
+                twigs.forEach { (from, to) ->
+                    drawLine(
+                        branch,
+                        Offset(size.width * from.x, size.height * from.y),
+                        Offset(size.width * to.x, size.height * to.y),
+                        strokeWidth = 2.5f,
+                        cap = StrokeCap.Round
+                    )
+                }
             }
             val blossoms = listOf(
-                .70f to .02f, .73f to .10f, .80f to .04f, .84f to .11f,
-                .90f to .06f, .91f to .15f, .77f to .18f, .96f to .11f,
-                .86f to .19f
+                .58f to .005f, .68f to .08f, .77f to .035f, .85f to .105f,
+                .93f to .06f, .98f to .15f, .73f to .18f, 1.02f to .12f,
+                .88f to .20f
             )
-            blossoms.forEach { (x, y) ->
+            if (decorationStyle == HighFidelityPaperDecorationStyle.Plum) blossoms.forEach { (x, y) ->
                 val center = Offset(size.width * x, size.height * y)
-                val petal = colors.roseBeige.copy(alpha = .16f)
+                val petal = Color(0xFFB8AAA0).copy(alpha = decoration.blossomAlpha)
                 listOf(-0.9f, -0.2f, 0.5f, 1.15f, 1.85f).forEach { radians ->
                     val petalCenter = Offset(
                         center.x + kotlin.math.cos(radians) * 10f,
@@ -69,27 +108,27 @@ fun InkWashBackground(
                         size = Size(10f, 18f)
                     )
                 }
-                drawCircle(colors.roseDust.copy(alpha = .18f), radius = 3f, center = center)
+                drawCircle(Color(0xFF9C9189).copy(alpha = .18f), radius = 3.5f, center = center)
             }
 
             // Pale leaves keep the decoration recognisable at a glance while
             // remaining behind content and readable on small 9:16 screens.
             val leaves = listOf(
-                Triple(.76f, .03f, -34f), Triple(.80f, .07f, 26f),
-                Triple(.86f, .10f, -22f), Triple(.91f, .13f, 38f),
-                Triple(.95f, .17f, -32f), Triple(.82f, .16f, 28f),
-                Triple(.70f, .10f, -42f), Triple(.88f, .04f, 30f)
+                Triple(.86f, .03f, -34f), Triple(.90f, .07f, 26f),
+                Triple(.96f, .10f, -22f), Triple(1.01f, .13f, 38f),
+                Triple(1.05f, .17f, -32f), Triple(.92f, .16f, 28f),
+                Triple(.80f, .10f, -42f), Triple(.98f, .04f, 30f)
             )
-            leaves.forEach { (x, y, angle) ->
+            if (decorationStyle == HighFidelityPaperDecorationStyle.Plum) leaves.forEach { (x, y, angle) ->
                 val center = Offset(size.width * x, size.height * y)
                 withTransform({ rotate(angle, center) }) {
                     drawOval(
-                        colors.almond.copy(alpha = .22f),
+                        Color(0xFFB8AAA0).copy(alpha = .22f),
                         topLeft = Offset(center.x - 5f, center.y - 12f),
                         size = Size(10f, 24f)
                     )
                     drawLine(
-                        colors.roseDust.copy(alpha = .10f),
+                        Color(0xFF8F877F).copy(alpha = .08f),
                         Offset(center.x, center.y - 10f),
                         Offset(center.x, center.y + 10f),
                         strokeWidth = 1.2f
@@ -97,7 +136,7 @@ fun InkWashBackground(
                 }
             }
 
-            val mountain = colors.almond.copy(alpha = 0.24f)
+            val mountain = colors.almond.copy(alpha = decoration.mountainAlpha)
             val mountainPath = Path().apply {
                 moveTo(0f, size.height)
                 lineTo(0f, size.height * .94f)
@@ -108,7 +147,7 @@ fun InkWashBackground(
                 close()
             }
             drawPath(mountainPath, mountain)
-            val distant = colors.almond.copy(alpha = .12f)
+            val distant = colors.almond.copy(alpha = .16f)
             val distantPath = Path().apply {
                 moveTo(0f, size.height)
                 lineTo(0f, size.height * .975f)
@@ -123,7 +162,7 @@ fun InkWashBackground(
             // visual anchor as the concept art without loading a bitmap.
             val pavilionX = size.width * .22f
             val pavilionY = size.height * .935f
-            val pavilion = colors.roseDust.copy(alpha = .10f)
+            val pavilion = Color(0xFF8F877F).copy(alpha = .08f)
             drawRect(pavilion, Offset(pavilionX - 12f, pavilionY - 30f), Size(24f, 30f))
             drawRect(pavilion, Offset(pavilionX - 18f, pavilionY - 34f), Size(36f, 4f))
             drawLine(pavilion, Offset(pavilionX - 24f, pavilionY - 38f), Offset(pavilionX + 24f, pavilionY - 38f), strokeWidth = 4f)

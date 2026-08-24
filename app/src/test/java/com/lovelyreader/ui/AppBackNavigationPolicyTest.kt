@@ -2,7 +2,9 @@ package com.lovelyreader.ui
 
 import com.lovelyreader.domain.SearchResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppBackNavigationPolicyTest {
@@ -22,5 +24,11 @@ class AppBackNavigationPolicyTest {
     @Test
     fun `system Back exits only from the bookshelf root`() {
         assertNull(readerBackDestination(Screen.Shelf))
+    }
+
+    @Test
+    fun `system Back at bookshelf is consumed so the activity does not finish unexpectedly`() {
+        assertTrue(shouldConsumeRootSystemBack(Screen.Shelf))
+        assertFalse(shouldConsumeRootSystemBack(Screen.Search))
     }
 }
