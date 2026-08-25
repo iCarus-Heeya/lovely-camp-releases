@@ -104,9 +104,15 @@ dependencies {
 
 val compressSplashImages by tasks.registering(Exec::class) {
     val inputDir = rootProject.rootDir.parentFile.resolve("图片素材")
+    val compressionScript = rootProject.rootDir.parentFile.resolve("scripts/compress_splash_images.py")
     val outputDir = file("src/main/assets/splash")
 
-    inputs.dir(inputDir)
+    // The source repository already contains the normalized splash assets. The
+    // original素材目录/script live one level above the local workspace and are
+    // intentionally not part of a clean Git checkout (for example CI).
+    // Treat them as optional local inputs so Gradle validation does not fail
+    // before the task's onlyIf predicate can skip compression.
+    inputs.dir(inputDir).optional()
     outputs.dir(outputDir)
 
     doFirst {
@@ -115,13 +121,14 @@ val compressSplashImages by tasks.registering(Exec::class) {
 
     commandLine(
         "py",
-        rootProject.rootDir.parentFile.resolve("scripts/compress_splash_images.py").absolutePath,
+        compressionScript.absolutePath,
         inputDir.absolutePath,
         outputDir.absolutePath
     )
 
     onlyIf {
-        !outputDir.exists() || outputDir.listFiles()?.isEmpty() != false
+        inputDir.isDirectory && compressionScript.isFile &&
+            (!outputDir.exists() || outputDir.listFiles()?.isEmpty() != false)
     }
 }
 
