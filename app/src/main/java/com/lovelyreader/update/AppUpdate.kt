@@ -107,22 +107,22 @@ fun parseGitHubLatestRelease(raw: String, currentVersionCode: Long): UpdateAvail
 fun parseGitHubReleaseManifest(raw: String): UpdateManifest {
     val json = JSONObject(raw)
     require(!json.optBoolean("prerelease", false) && !json.optBoolean("draft", false)) { "预发布版本不能自动安装" }
-    val match = Regex("^v(\\d+\\.\\d+\\.\\d+)\\+(\\d+)$").matchEntire(json.getString("tag_name").trim())
+    val version = parseReleaseVersionTag(json.getString("tag_name"))
         ?: throw IllegalArgumentException("发布标签必须是 v版本号+版本代码")
-    val versionName = match.groupValues[1]
-    val versionCode = match.groupValues[2].toLong()
-    val expectedAsset = "lovely-camp-v$versionName.apk"
+    val versionName = version.versionName
+    val versionCode = version.versionCode
+    val expectedAsset = releaseAssetName(versionName)
     val asset = json.getJSONArray("assets").let { assets ->
         (0 until assets.length()).map { assets.getJSONObject(it) }
             .firstOrNull { it.optString("name") == expectedAsset }
     } ?: throw IllegalArgumentException("未找到正式安装包")
-    val digest = asset.optString("digest").trim().lowercase()
-    require(digest.startsWith("sha256:")) { "发布安装包缺少 SHA-256 校验值" }
+    val digest = normalizeSha256(asset.optString("digest"))
+        ?: throw IllegalArgumentException("发布安装包缺少 SHA-256 校验值")
     return UpdateManifest(
         versionCode = versionCode,
         versionName = versionName,
         apkUrl = asset.getString("browser_download_url").trim(),
-        sha256 = digest.removePrefix("sha256:"),
+        sha256 = digest,
         notes = json.optString("body").trim(),
         mandatory = false
     ).also(::validateManifest)

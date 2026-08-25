@@ -7,9 +7,9 @@ import org.junit.Test
 
 class HighFidelityDebugFixtureTest {
     @Test
-    fun fixtureIsAvailableInTheReleaseAcceptanceArtifactToo() {
+    fun fixtureIsAvailableOnlyWhenTheBuildIsDebuggable() {
         assertTrue(highFidelityDebugFixtureEnabled(isDebuggable = true))
-        assertTrue(highFidelityDebugFixtureEnabled(isDebuggable = false))
+        assertFalse(highFidelityDebugFixtureEnabled(isDebuggable = false))
     }
 
     @Test

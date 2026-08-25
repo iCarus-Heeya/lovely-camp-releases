@@ -83,6 +83,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -709,6 +711,7 @@ internal fun DramaDetailCompactScreen(
         }
         items(episodes, key = { it.id }) { episode ->
             val chosen = episode.id in selectedEpisodeIds
+            val compactLabel = dramaEpisodeDisplayLabel(episode.label)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -729,7 +732,7 @@ internal fun DramaDetailCompactScreen(
                     contentAlignment = androidx.compose.ui.Alignment.Center
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 2.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 3.dp, end = 1.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         Box(
@@ -743,35 +746,44 @@ internal fun DramaDetailCompactScreen(
                                 ) {
                                     Icon(Icons.Outlined.BarChart, contentDescription = "已选集", tint = colors.roseDust, modifier = Modifier.size(18.dp))
                                     Text(
-                                        "第 ${episode.label.removePrefix("第").removeSuffix("集")} 集",
-                                        style = MaterialTheme.typography.labelLarge,
+                                        "第 ${compactLabel} 集",
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = colors.roseDust,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             } else {
                                 Text(
-                                    episode.label.removePrefix("第").removeSuffix("集"),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    compactLabel,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = colors.cocoa,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    softWrap = false,
+                                    overflow = if (dramaEpisodeLabelCanEllipsize(episode.label)) {
+                                        TextOverflow.Ellipsis
+                                    } else {
+                                        TextOverflow.Clip
+                                    }
                                 )
                             }
                         }
-                        IconButton(
-                            onClick = {
-                                if (dramaEpisodeAction(DramaEpisodeTapTarget.PlayButton) == DramaEpisodeAction.OpenPlayer) {
-                                    onPlayEpisode(episode)
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .semantics { contentDescription = "播放 ${episode.label}" }
+                                .clickable {
+                                    if (dramaEpisodeAction(DramaEpisodeTapTarget.PlayButton) == DramaEpisodeAction.OpenPlayer) {
+                                        onPlayEpisode(episode)
+                                    }
+                                },
+                            contentAlignment = androidx.compose.ui.Alignment.Center
                         ) {
                             Icon(
                                 Icons.Outlined.PlayArrow,
-                                contentDescription = "播放 ${episode.label}",
+                                contentDescription = null,
                                 tint = if (chosen) colors.roseDust else colors.softGray,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

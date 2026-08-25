@@ -29,6 +29,8 @@ class LibraryRepository {
         private set
     var readerNightMode: Boolean = false
         private set
+    var readerLineSpacing: Int = 16
+        private set
     var appTheme: AppTheme = AppTheme.Warm
         private set
 
@@ -71,13 +73,21 @@ class LibraryRepository {
         return (p?.lastReadIndex ?: 0) to (p?.lastReadOffset ?: 0)
     }
 
-    fun updateReaderPreferences(fontSize: Int? = null, nightMode: Boolean? = null, theme: AppTheme? = null) {
+    fun updateReaderPreferences(
+        fontSize: Int? = null,
+        lineSpacing: Int? = null,
+        nightMode: Boolean? = null,
+        theme: AppTheme? = null
+    ) {
         fontSize?.let { readerFontSize = it.coerceIn(14, 24) }
+        lineSpacing?.let { readerLineSpacing = it.coerceIn(12, 32) }
         nightMode?.let { readerNightMode = it }
         theme?.let { appTheme = it }
     }
 
     fun readerPreferences(): Pair<Int, Boolean> = readerFontSize to readerNightMode
+
+    fun readerLineSpacing(): Int = readerLineSpacing
 
     fun cacheOfflineChapter(bookId: String, chapter: ChapterContent) {
         offlineChapters[bookId] = OfflineChapter(
@@ -179,6 +189,7 @@ class LibraryRepository {
         offlineChapters.clear()
         partialChapters.clear()
         readerFontSize = snapshot.readerFontSize.coerceIn(14, 24)
+        readerLineSpacing = snapshot.readerLineSpacing.coerceIn(12, 32)
         readerNightMode = snapshot.readerNightMode
         appTheme = snapshot.appTheme
         val restoredBooks = snapshot.books.filterNot { it.id in blockedLegacyBookIds }
@@ -230,6 +241,7 @@ data class LibrarySnapshot(
     val offlineChapters: List<OfflineChapter> = emptyList(),
     val partialChapters: List<OfflineChapter> = emptyList(),
     val readerFontSize: Int = defaultReaderFontSize,
+    val readerLineSpacing: Int = 16,
     val readerNightMode: Boolean = false,
     val appTheme: AppTheme = AppTheme.Warm
 )

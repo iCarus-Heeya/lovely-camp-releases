@@ -38,6 +38,7 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
             .putString("offlineChapters", encoded.offlineChapters)
             .putString("partialChapters", encoded.partialChapters)
             .putString("readerFontSize", encoded.readerFontSize)
+            .putString("readerLineSpacing", encoded.readerLineSpacing)
             .putString("readerNightMode", encoded.readerNightMode)
             .putString("appTheme", encoded.appTheme)
             .apply()
@@ -58,6 +59,7 @@ class AndroidLibraryPersistence(context: Context) : LibraryPersistence {
                 offlineChapters = preferences.getString("offlineChapters", "").orEmpty(),
                 partialChapters = preferences.getString("partialChapters", "").orEmpty(),
                 readerFontSize = preferences.getString("readerFontSize", null) ?: defaultReaderFontSize.toString(),
+                readerLineSpacing = preferences.getString("readerLineSpacing", null) ?: "16",
                 readerNightMode = preferences.getString("readerNightMode", null) ?: "false",
                 appTheme = preferences.getString("appTheme", null) ?: AppTheme.Warm.name
             )

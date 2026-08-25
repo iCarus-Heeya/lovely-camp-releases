@@ -195,6 +195,7 @@ enum class DiscoveryLoadStatus {
     UNSUPPORTED,
     EXHAUSTED,
     NO_NEW_ITEMS,
+    SOURCE_UNAVAILABLE,
     STALE
 }
 
@@ -203,7 +204,10 @@ data class DiscoveryLoadOutcome(
     val status: DiscoveryLoadStatus
 )
 
-class DiscoveryCoordinator(private val rotation: DiscoveryRotation) {
+class DiscoveryCoordinator(
+    private val rotation: DiscoveryRotation,
+    private val sourceHealth: SourceHealthLedger = SourceHealthLedger()
+) {
     suspend fun load(
         category: String,
         sources: List<DiscoveryEndpoint>,
@@ -228,11 +232,15 @@ class DiscoveryCoordinator(private val rotation: DiscoveryRotation) {
         if (buffered.isNotEmpty()) {
             return@coroutineScope DiscoveryLoadOutcome(buffered, DiscoveryLoadStatus.SUCCESS)
         }
-        val requestableSources = sources.filter { rotation.canRequest(category, it.sourceId) }
+        val requestableSources = sources.filter {
+            rotation.canRequest(category, it.sourceId) && sourceHealth.canRequest(it.sourceId)
+        }
         if (requestableSources.isEmpty()) {
             return@coroutineScope DiscoveryLoadOutcome(
                 emptyList(),
-                if (sources.isNotEmpty() && rotation.hasSupportedSource(category)) {
+                if (sources.any { !sourceHealth.canRequest(it.sourceId) }) {
+                    DiscoveryLoadStatus.SOURCE_UNAVAILABLE
+                } else if (sources.isNotEmpty() && rotation.hasSupportedSource(category)) {
                     DiscoveryLoadStatus.EXHAUSTED
                 } else {
                     DiscoveryLoadStatus.UNSUPPORTED
@@ -255,6 +263,13 @@ class DiscoveryCoordinator(private val rotation: DiscoveryRotation) {
 
         val successes = requested.filter { it.second is CategoryBrowseResult.Success }
         val failures = requested.filter { it.second is CategoryBrowseResult.Failure }
+        requested.forEach { (endpoint, result) ->
+            when (result) {
+                is CategoryBrowseResult.Failure -> sourceHealth.recordFailure(endpoint.sourceId, result.reason)
+                is CategoryBrowseResult.Success -> sourceHealth.recordSuccess(endpoint.sourceId)
+                CategoryBrowseResult.Unsupported -> Unit
+            }
+        }
         if (!isCurrent()) {
             return@coroutineScope DiscoveryLoadOutcome(emptyList(), DiscoveryLoadStatus.STALE)
         }

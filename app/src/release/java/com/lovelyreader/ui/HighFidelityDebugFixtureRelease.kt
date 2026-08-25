@@ -42,9 +42,9 @@ import com.lovelyreader.ui.theme.appColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** The pixel gate is part of both deliverable artifacts; normal production flows stay intact. */
+/** Formal Release builds never expose the deterministic acceptance fixture. */
 @Suppress("UNUSED_PARAMETER")
-internal fun highFidelityDebugFixtureEnabled(isDebuggable: Boolean): Boolean = true
+internal fun highFidelityDebugFixtureEnabled(isDebuggable: Boolean): Boolean = false
 
 private enum class ReleaseHighFidelityPage {
     Picker,

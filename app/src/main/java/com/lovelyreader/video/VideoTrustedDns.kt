@@ -66,6 +66,7 @@ internal object NoopTrustedVideoDnsFallback : TrustedVideoDnsFallback {
 
 internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDnsFallback {
     private val appContext = context.applicationContext
+    private val addressCache = TrustedDnsAddressCache()
 
     override suspend fun preflight(url: String): TrustedDnsFallbackReason? = withContext(Dispatchers.IO) {
         val host = URI(url).host ?: return@withContext TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
@@ -105,6 +106,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
     }
 
     private suspend fun resolveWithAliDns(host: String): List<InetAddress> = withContext(Dispatchers.IO) {
+        addressCache.get(host)?.let { return@withContext it }
         val encodedHost = URLEncoder.encode(host, "UTF-8")
         val resolverUrl = URL("https://dns.alidns.com/resolve?name=$encodedHost&type=A")
         var responseReceived = false
@@ -122,7 +124,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
                 if (connection.responseCode !in 200..299) return@forEach
                 val answer = JSONObject(connection.inputStream.bufferedReader().use { it.readText() }).optJSONArray("Answer")
                     ?: return@forEach
-                return@withContext buildList {
+                val resolved = buildList {
                     for (index in 0 until answer.length()) {
                         val item = answer.optJSONObject(index) ?: continue
                         if (item.optInt("type") != 1) continue
@@ -130,6 +132,8 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
                         if (!isUnsafePublicAddress(address)) add(address)
                     }
                 }.distinctBy { it.hostAddress }
+                addressCache.put(host, resolved)
+                return@withContext resolved
             } catch (error: IOException) {
                 lastError = IOException(
                     "可信 DNS 引导地址 ${bootstrapAddress.hostAddress} 查询失败",

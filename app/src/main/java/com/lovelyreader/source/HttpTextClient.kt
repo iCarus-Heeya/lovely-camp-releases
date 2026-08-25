@@ -1,7 +1,10 @@
 package com.lovelyreader.source
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.net.CookieHandler
 import java.net.CookieManager
@@ -20,6 +23,7 @@ class HttpTextClient(
     private val connectionFactory: ((URL) -> HttpURLConnection)? = null
 ) {
     private var lastRequestAtMillis: Long = 0
+    private val requestGate = Mutex()
 
     fun timeoutConfiguration(): HttpTimeoutConfiguration =
         HttpTimeoutConfiguration(connectTimeoutMillis, readTimeoutMillis)
@@ -196,12 +200,11 @@ class HttpTextClient(
         }.joinToString("")
     }
 
-    @Synchronized
-    private fun waitForPoliteInterval() {
+    private suspend fun waitForPoliteInterval() = requestGate.withLock {
         val now = System.currentTimeMillis()
         val nextAllowedAt = lastRequestAtMillis + minimumIntervalMillis
         if (now < nextAllowedAt) {
-            Thread.sleep(nextAllowedAt - now)
+            delay(nextAllowedAt - now)
         }
         lastRequestAtMillis = System.currentTimeMillis()
     }
