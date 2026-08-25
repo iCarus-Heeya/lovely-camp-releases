@@ -47,7 +47,7 @@ jobs:
           test "$RELEASE_TAG" = "v${VERSION_NAME}+${VERSION_CODE}"
 
       - name: Test and assemble the signed release APK
-        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
+        run: bash ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
 
       - name: Prepare named asset and notes
         shell: bash
