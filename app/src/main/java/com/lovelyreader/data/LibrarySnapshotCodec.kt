@@ -19,6 +19,7 @@ class LibrarySnapshotCodec {
             offlineChapters = snapshot.offlineChapters.joinToString("\n") { encodeOfflineChapter(it) },
             partialChapters = snapshot.partialChapters.joinToString("\n") { encodeOfflineChapter(it) },
             readerFontSize = snapshot.readerFontSize.toString(),
+            readerLineSpacing = snapshot.readerLineSpacing.toString(),
             readerNightMode = snapshot.readerNightMode.toString(),
             appTheme = snapshot.appTheme.name
         )
@@ -35,6 +36,7 @@ class LibrarySnapshotCodec {
             offlineChapters = encoded.offlineChapters.linesNotBlank().mapNotNull(::decodeOfflineChapter),
             partialChapters = encoded.partialChapters.linesNotBlank().mapNotNull(::decodeOfflineChapter),
             readerFontSize = encoded.readerFontSize.toIntOrNull() ?: defaultReaderFontSize,
+            readerLineSpacing = encoded.readerLineSpacing.toIntOrNull() ?: 16,
             readerNightMode = encoded.readerNightMode.toBooleanStrictOrNull() ?: false,
             appTheme = runCatching { AppTheme.valueOf(encoded.appTheme) }.getOrDefault(AppTheme.Warm)
         )
@@ -166,6 +168,7 @@ data class EncodedLibrarySnapshot(
     val offlineChapters: String = "",
     val partialChapters: String = "",
     val readerFontSize: String = defaultReaderFontSize.toString(),
+    val readerLineSpacing: String = "16",
     val readerNightMode: String = "false",
     val appTheme: String = AppTheme.Warm.name
 )

@@ -29,15 +29,15 @@ class ChapterContentFilePersistence(context: Context) {
         }
         // 每本书独立写一个文件
         chapters.forEach { chapter ->
-            offlineFile(chapter.bookId).writeText(chapter.content)
+            AtomicFileStore(offlineFile(chapter.bookId)).writeText(chapter.content)
         }
     }
 
     suspend fun loadOfflineChapters(metaChapters: List<OfflineChapter>): List<OfflineChapter> = withContext(Dispatchers.IO) {
         metaChapters.mapNotNull { meta ->
             val file = offlineFile(meta.bookId)
-            if (!file.exists()) return@mapNotNull null
-            meta.copy(content = file.readText())
+            val content = AtomicFileStore(file).readTextOrNull() ?: return@mapNotNull null
+            meta.copy(content = content)
         }
     }
 
@@ -59,15 +59,15 @@ class ChapterContentFilePersistence(context: Context) {
                     append(chapter.content)
                 }
             }
-            partialFile(bookId).writeText(text)
+            AtomicFileStore(partialFile(bookId)).writeText(text)
         }
     }
 
     suspend fun loadPartialChapters(metaChapters: List<OfflineChapter>): List<OfflineChapter> = withContext(Dispatchers.IO) {
         metaChapters.groupBy { it.bookId }.flatMap { (bookId, metas) ->
             val file = partialFile(bookId)
-            if (!file.exists()) return@flatMap emptyList()
-            val chapters = parsePartialFile(bookId, file.readText())
+            val text = AtomicFileStore(file).readTextOrNull() ?: return@flatMap emptyList()
+            val chapters = parsePartialFile(bookId, text)
             // 用文件里的内容覆盖元数据里的空内容
             val metaByUrl = metas.associateBy { it.url }
             chapters.mapNotNull { chapter ->

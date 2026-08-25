@@ -6,8 +6,16 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.lovelyreader.download.DownloadConnection
+import com.lovelyreader.download.DownloadTransferProgress
+import com.lovelyreader.download.ResumableFileDownloader
+import com.lovelyreader.network.NetworkRetryPolicy
+import com.lovelyreader.network.retryNetwork
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -52,7 +60,7 @@ class AndroidAppUpdater(private val context: Context) {
 
     suspend fun check(): UpdateCheckResult = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = getText(GitHubReleaseConfiguration.LATEST_RELEASE_URL)
+            val raw = getTextWithRetry(GitHubReleaseConfiguration.LATEST_RELEASE_URL)
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             when (val availability = parseGitHubLatestRelease(raw, packageInfo.longVersionCode)) {
                 UpdateAvailability.UpToDate -> UpdateCheckResult.UpToDate
@@ -65,7 +73,7 @@ class AndroidAppUpdater(private val context: Context) {
     suspend fun history(limit: Int = 20): Result<List<UpdateHistoryEntry>> = withContext(Dispatchers.IO) {
         runCatching {
             val address = "${GitHubReleaseConfiguration.RELEASE_HISTORY_URL}?per_page=${limit.coerceIn(1, 50)}"
-            parseGitHubReleaseHistory(getText(address))
+            parseGitHubReleaseHistory(getTextWithRetry(address))
         }
     }
 
@@ -74,75 +82,55 @@ class AndroidAppUpdater(private val context: Context) {
         onProgress: suspend (UpdateDownloadProgress) -> Unit = {}
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
+            ResumableFileDownloader.cleanupStalePartials(
+                directory = context.cacheDir,
+                olderThanMillis = 7L * 24L * 60L * 60L * 1_000L
+            )
             val target = File(context.cacheDir, "update-${manifest.versionCode}.apk")
             val partial = File(target.parentFile, "${target.name}.part")
-            val connection = followHttpsRedirects(manifest.apkUrl)
-            val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
-            var downloadedBytes = 0L
-            var lastProgressAtNanos = 0L
-            val startedAtNanos = System.nanoTime()
-            try {
-                onProgress(
-                    UpdateDownloadProgress(
-                        downloadedBytes = 0L,
-                        totalBytes = totalBytes,
-                        speedBytesPerSecond = 0L
-                    )
-                )
-                connection.inputStream.use { input ->
-                    partial.outputStream().use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            downloadedBytes += read
-                            val nowNanos = System.nanoTime()
-                            if (nowNanos - lastProgressAtNanos >= PROGRESS_INTERVAL_NANOS) {
-                                onProgress(
-                                    UpdateDownloadProgress(
-                                        downloadedBytes = downloadedBytes,
-                                        totalBytes = totalBytes,
-                                        speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, nowNanos)
-                                    )
-                                )
-                                lastProgressAtNanos = nowNanos
-                            }
-                        }
-                    }
-                }
-            } finally {
-                connection.disconnect()
+            if (target.isFile && sha256(target).equals(manifest.sha256, ignoreCase = true)) {
+                onProgress(UpdateDownloadProgress(target.length(), target.length(), 0L, UpdateDownloadPhase.Ready))
+                return@runCatching target
             }
-            val finishedAtNanos = System.nanoTime()
+            ResumableFileDownloader(
+                open = { _, startByte -> openResumableConnection(manifest.apkUrl, startByte) }
+            ).download(
+                url = manifest.apkUrl,
+                partial = partial,
+                target = target
+            ) { progress ->
+                onProgress(progress.toUpdateProgress())
+            }
+            val downloadedBytes = target.length()
+            val totalBytes = downloadedBytes.takeIf { it > 0L }
             onProgress(
                 UpdateDownloadProgress(
                     downloadedBytes = downloadedBytes,
                     totalBytes = totalBytes,
-                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos)
+                    speedBytesPerSecond = 0L
                 )
             )
             onProgress(
                 UpdateDownloadProgress(
                     downloadedBytes = downloadedBytes,
                     totalBytes = totalBytes,
-                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos),
+                    speedBytesPerSecond = 0L,
                     phase = UpdateDownloadPhase.Verifying
                 )
             )
-            val actual = sha256(partial)
+            val actual = sha256(target)
             require(actual.equals(manifest.sha256, ignoreCase = true)) { "安装包校验失败" }
-            if (target.exists()) target.delete()
-            require(partial.renameTo(target)) { "无法准备安装包" }
             onProgress(
                 UpdateDownloadProgress(
                     downloadedBytes = downloadedBytes,
                     totalBytes = totalBytes,
-                    speedBytesPerSecond = averageSpeed(downloadedBytes, startedAtNanos, finishedAtNanos),
+                    speedBytesPerSecond = 0L,
                     phase = UpdateDownloadPhase.Ready
                 )
             )
             target
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
         }
     }
 
@@ -163,7 +151,24 @@ class AndroidAppUpdater(private val context: Context) {
         })
     }
 
-    private fun getText(address: String): String = openHttps(address).inputStream.bufferedReader().use { it.readText() }
+    private suspend fun getTextWithRetry(address: String): String = retryNetwork(
+        policy = NetworkRetryPolicy(maxAttempts = 3, initialDelayMillis = 600L, maxDelayMillis = 2_000L),
+        request = { getText(address) },
+        wait = { delay(it) }
+    )
+
+    private fun getText(address: String): String {
+        val connection = openRawHttps(address)
+        return try {
+            when (val responseCode = connection.responseCode) {
+                in 200..299 -> connection.inputStream.bufferedReader().use { it.readText() }
+                in 500..599 -> throw IOException("更新服务响应异常：$responseCode")
+                else -> error("更新服务响应异常：$responseCode")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private fun lastAutomaticAttemptMillis(): Long? {
         val value = automaticCheckPreferences.getLong(AUTOMATIC_CHECK_ATTEMPT_KEY, NO_AUTOMATIC_ATTEMPT)
@@ -177,12 +182,19 @@ class AndroidAppUpdater(private val context: Context) {
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun followHttpsRedirects(address: String): HttpURLConnection {
+    private fun openResumableConnection(address: String, startByte: Long): DownloadConnection {
         var current = address
         repeat(5) {
-            val connection = openHttps(current, followRedirects = false)
+            val connection = openRawHttps(current).apply {
+                if (startByte > 0L) setRequestProperty("Range", "bytes=$startByte-")
+            }
             when (connection.responseCode) {
-                in 200..299 -> return connection
+                in 200..299 -> return object : DownloadConnection {
+                    override val responseCode: Int = connection.responseCode
+                    override val contentLength: Long? = connection.contentLengthLong.takeIf { it >= 0L }
+                    override val input = connection.inputStream
+                    override fun close() = connection.disconnect()
+                }
                 in 300..399 -> {
                     val location = connection.getHeaderField("Location") ?: error("下载跳转地址缺失")
                     connection.disconnect()
@@ -194,16 +206,15 @@ class AndroidAppUpdater(private val context: Context) {
         error("安装包跳转次数过多")
     }
 
-    private fun openHttps(address: String, followRedirects: Boolean = false): HttpURLConnection {
+    private fun openRawHttps(address: String): HttpURLConnection {
         val url = URL(address)
         require(url.protocol.equals("https", ignoreCase = true) && !url.host.isNullOrBlank()) { "更新地址必须是 HTTPS" }
         return (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 12_000
             readTimeout = 60_000
-            instanceFollowRedirects = followRedirects
+            instanceFollowRedirects = false
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "LovelyCamp-Android-Updater")
-            require(responseCode in 200..399) { "更新服务响应异常" }
         }
     }
 
@@ -218,15 +229,16 @@ class AndroidAppUpdater(private val context: Context) {
         digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun averageSpeed(downloadedBytes: Long, startedAtNanos: Long, nowNanos: Long): Long {
-        val elapsedNanos = (nowNanos - startedAtNanos).coerceAtLeast(1L)
-        return ((downloadedBytes.toDouble() * 1_000_000_000.0) / elapsedNanos).toLong()
-    }
+    private fun DownloadTransferProgress.toUpdateProgress(): UpdateDownloadProgress =
+        UpdateDownloadProgress(
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
+            speedBytesPerSecond = speedBytesPerSecond
+        )
 
     private companion object {
         const val AUTOMATIC_CHECK_PREFERENCES = "lovely_camp_update"
         const val AUTOMATIC_CHECK_ATTEMPT_KEY = "last_automatic_attempt_millis"
         const val NO_AUTOMATIC_ATTEMPT = -1L
-        const val PROGRESS_INTERVAL_NANOS = 150_000_000L
     }
 }

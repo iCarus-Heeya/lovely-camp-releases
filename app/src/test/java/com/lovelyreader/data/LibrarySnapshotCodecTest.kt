@@ -57,6 +57,7 @@ class LibrarySnapshotCodecTest {
                 )
             ),
             readerFontSize = 22,
+            readerLineSpacing = 20,
             readerNightMode = true
         )
 

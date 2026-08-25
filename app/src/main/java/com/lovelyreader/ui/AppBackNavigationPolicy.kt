@@ -1,11 +1,9 @@
 package com.lovelyreader.ui
 
+import com.lovelyreader.ui.navigation.nextReaderRoute
+
 /** The single source of truth for Android system Back outside the reader itself. */
-internal fun readerBackDestination(screen: Screen): Screen? = when (screen) {
-    Screen.Shelf -> null
-    Screen.Search, Screen.Settings, is Screen.Reader -> Screen.Shelf
-    is Screen.Detail -> Screen.Search
-}
+internal fun readerBackDestination(screen: Screen): Screen? = nextReaderRoute(screen)
 
 /**
  * The bookshelf is the app's visual root. Consume Android Back there instead

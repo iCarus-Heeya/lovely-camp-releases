@@ -46,3 +46,23 @@ internal fun recentEpisodeDisplayLabel(episodeId: String): String {
         ?.getOrNull(1)
     return number?.let { "第${it.toIntOrNull() ?: it}集" } ?: "上次选集"
 }
+
+private val compactEpisodeNumberPattern = Regex(
+    "^\\s*(?:(?:第\\s*)|(?:episode\\s*)|(?:ep\\s*))?(\\d+)(?:\\s*(?:集|话|期|回|episode|episodes|ep))?[^\\d]*$",
+    RegexOption.IGNORE_CASE
+)
+
+/** Compact grid labels keep numeric episode identity readable at every count. */
+internal fun dramaEpisodeDisplayLabel(raw: String): String {
+    val trimmed = raw.trim()
+    val number = compactEpisodeNumberPattern.matchEntire(trimmed)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toLongOrNull()
+    return number?.toString()
+        ?: trimmed.removePrefix("第").removeSuffix("集").trim()
+}
+
+/** Long editorial titles may ellipsize; numeric episode labels may not. */
+internal fun dramaEpisodeLabelCanEllipsize(raw: String): Boolean =
+    compactEpisodeNumberPattern.matchEntire(raw.trim()) == null

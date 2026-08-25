@@ -77,6 +77,9 @@ import com.lovelyreader.update.UpdateHistoryEntry
 import com.lovelyreader.update.UpdateCheckResult
 import com.lovelyreader.update.formatUpdateDownloadProgress
 import androidx.compose.runtime.collectAsState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.lovelyreader.data.LibraryBackupCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -127,6 +130,7 @@ fun LovelyReaderApp(
     var updateHistory by remember { mutableStateOf<List<UpdateHistoryEntry>>(emptyList()) }
     var updateHistoryMessage by rememberSaveable { mutableStateOf("") }
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
+    var backupMessage by rememberSaveable { mutableStateOf("") }
     val dramaViewModel: DramaViewModel = viewModel {
         DramaViewModel(
             rootResolver = DramaRootResolver {
@@ -136,6 +140,38 @@ fun LovelyReaderApp(
             library = VideoLibraryDramaStore(videoRepository),
             downloadEnqueuer = DramaDownloadEnqueuer(videoCoordinator::download)
         )
+    }
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        videoScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(LibraryBackupCodec.encode(viewModel.snapshotForBackup()).toByteArray(Charsets.UTF_8))
+                    } ?: error("无法写入备份文件")
+                }
+            }.onSuccess { backupMessage = "备份已导出" }
+                .onFailure { backupMessage = "备份导出失败：${it.message.orEmpty()}" }
+        }
+    }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        videoScope.launch {
+            runCatching {
+                val raw = withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("无法读取备份文件")
+                }
+                LibraryBackupCodec.decode(raw).getOrThrow()
+            }.onSuccess {
+                viewModel.restoreBackup(it)
+                backupMessage = "备份已恢复"
+            }.onFailure { backupMessage = "备份恢复失败：${it.message.orEmpty()}" }
+        }
     }
     var experience by rememberSaveable { mutableStateOf(AppExperience.Reader) }
     var showVisualFixture by rememberSaveable { mutableStateOf(false) }
@@ -162,6 +198,7 @@ fun LovelyReaderApp(
     val downloadingBookIds by viewModel.downloadingBookIds.collectAsState()
     val appTheme by viewModel.appTheme.collectAsState()
     val searchHistory by viewModel.searchHistory.collectAsState()
+    val searchSeed by viewModel.searchSeed.collectAsState()
 
     LaunchedEffect(appUpdater) {
         when (val result = appUpdater.checkAutomatically()) {
@@ -272,6 +309,7 @@ fun LovelyReaderApp(
             rankingMessage = rankingMessage,
             randomMessage = randomMessage,
             searchHistory = searchHistory,
+            initialQuery = searchSeed,
             onBack = { viewModel.openShelf() },
             onSearch = { query -> viewModel.performSearch(query) },
             onRankingChanged = { period, category -> viewModel.refreshRanking(period, category) },
@@ -397,6 +435,7 @@ fun LovelyReaderApp(
             result = current.result,
             detail = selectedDetail,
             onBack = { viewModel.openSearch() },
+            onAuthorClick = { author -> viewModel.openSearchFor(author) },
             onAddToShelf = {
                 viewModel.startDownloadToShelf(current.result, selectedDetail?.book)
             },
@@ -411,6 +450,7 @@ fun LovelyReaderApp(
 
         is Screen.Reader -> {
             val (initialFontSize, initialNightMode) = viewModel.readerPreferences()
+            val initialLineSpacing = viewModel.readerLineSpacing()
             val (initialIndex, initialOffset) = viewModel.lastReadPositionFor(current.bookId)
             ReaderScreen(
                 book = viewModel.bookById(current.bookId) ?: emptyBook(),
@@ -418,6 +458,7 @@ fun LovelyReaderApp(
                 isLoadingChapter = isLoadingChapter,
                 chapterLoadAttempted = chapterLoadAttempted,
                 initialFontSize = initialFontSize,
+                initialLineSpacing = initialLineSpacing,
                 initialNightMode = initialNightMode,
                 initialScrollIndex = initialIndex,
                 initialScrollOffset = initialOffset,
@@ -427,6 +468,7 @@ fun LovelyReaderApp(
                     viewModel.updateProgress(current.bookId, percent, index, offset)
                 },
                 onFontSizeChanged = { size -> viewModel.updateReaderFontSize(size) },
+                onLineSpacingChanged = { spacing -> viewModel.updateReaderLineSpacing(spacing) },
                 onNightModeChanged = { night -> viewModel.updateReaderNightMode(night) },
                 bottomBar = {}
             )
@@ -461,6 +503,9 @@ fun LovelyReaderApp(
             onInstallUpdate = ::startUpdateDownload,
             updateHistory = updateHistory,
             updateHistoryMessage = updateHistoryMessage,
+            onExportBackup = { exportBackupLauncher.launch("lovely-camp-backup.json") },
+            onImportBackup = { importBackupLauncher.launch(arrayOf("application/json", "text/plain")) },
+            backupMessage = backupMessage,
             onLoadUpdateHistory = {
                 videoScope.launch {
                     updateHistoryMessage = "正在读取版本记录…"
@@ -645,6 +690,7 @@ private fun BookDetailScreenWrapper(
     result: SearchResult,
     detail: BookDetail?,
     onBack: () -> Unit,
+    onAuthorClick: (String) -> Unit,
     onAddToShelf: () -> Unit,
     loadDetail: suspend () -> Unit,
     experienceSwitch: @Composable () -> Unit = {},
@@ -658,6 +704,7 @@ private fun BookDetailScreenWrapper(
         detail = detail,
         onBack = onBack,
         onAddToShelf = onAddToShelf,
+        onAuthorClick = onAuthorClick,
         experienceSwitch = experienceSwitch,
         bottomBar = bottomBar
     )

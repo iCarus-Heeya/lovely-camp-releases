@@ -15,6 +15,12 @@ internal data class ReaderChromeState(
 internal fun readerChromeStateAfterCenterTap(state: ReaderChromeState): ReaderChromeState =
     if (!state.showChrome) {
         state.copy(showChrome = true, showBottomMenu = true)
+    } else if (!state.showBottomMenu) {
+        state.copy(showChrome = true, showBottomMenu = true)
     } else {
-        state.copy(showBottomMenu = !state.showBottomMenu)
+        state.copy(showChrome = false, showBottomMenu = false)
     }
+
+/** The bottom menu is an overlay; opening it must not change pagination geometry. */
+@Suppress("UNUSED_PARAMETER")
+internal fun readerContentBottomInsetDp(baseInsetDp: Int, showBottomMenu: Boolean): Int = baseInsetDp

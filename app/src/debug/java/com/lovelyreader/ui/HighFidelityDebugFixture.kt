@@ -77,9 +77,9 @@ internal enum class HighFidelityDebugFixturePage {
     Notes
 }
 
-/** The acceptance surface is shipped in both artifacts; production data paths remain unchanged. */
+/** The deterministic acceptance surface is debug-only; production data paths remain unchanged. */
 @Suppress("UNUSED_PARAMETER")
-internal fun highFidelityDebugFixtureEnabled(isDebuggable: Boolean): Boolean = true
+internal fun highFidelityDebugFixtureEnabled(isDebuggable: Boolean): Boolean = isDebuggable
 
 internal fun highFidelityDebugFixturePages(): List<HighFidelityDebugFixturePage> = listOf(
     HighFidelityDebugFixturePage.Shelf,
@@ -546,15 +546,15 @@ internal fun HighFidelityDebugFixtureScreen(
             },
             updateMessage = "阅读体验优化，剧集搜索更稳定",
             updateAvailable = com.lovelyreader.update.UpdateManifest(
-                versionCode = 86L,
-                versionName = "0.8.23",
-                apkUrl = "https://fixture.invalid/lovely-camp-0.8.23.apk",
+                versionCode = 87L,
+                versionName = "0.9.0",
+                apkUrl = "https://fixture.invalid/lovely-camp-0.9.0.apk",
                 sha256 = "fixture",
                 notes = "家庭网络片源回退与启动更新优化",
                 mandatory = false
             ),
             updateHistory = listOf(
-                UpdateHistoryEntry(85L, "0.8.22", "2026-08-24", "启动更新提示与下载进度优化"),
+                UpdateHistoryEntry(86L, "0.8.23", "2026-08-25", "家庭网络回退与启动更新优化"),
                 UpdateHistoryEntry(18L, "0.8.18", "2026-08-22", "优化阅读体验与剧集搜索稳定性"),
                 UpdateHistoryEntry(17L, "0.8.17", "2026-08-20", "加入高保真视觉与来源诊断")
             ),

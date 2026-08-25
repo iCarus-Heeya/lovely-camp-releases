@@ -29,7 +29,14 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required release secret: $name" >&2
+              exit 1
+            fi
+          done
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > lovely-reader-release.jks
+          test -s lovely-reader-release.jks
           cat > release-signing.properties <<EOF
           storeFile=lovely-reader-release.jks
           storePassword=$RELEASE_STORE_PASSWORD
@@ -49,18 +56,67 @@ jobs:
       - name: Test and assemble the signed release APK
         run: bash ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
 
+      - name: Verify package, version and signature before publishing
+        shell: bash
+        run: |
+          VERSION_NAME=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= *([0-9]+).*/\1/')
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          BADGING=$($AAPT2 dump badging "$APK")
+          echo "$BADGING" | grep -F "package: name='com.lovelyreader' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'"
+          "$APKSIGNER" verify --verbose "$APK" | grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          test "$GITHUB_REF_NAME" = "v${VERSION_NAME}+${VERSION_CODE}"
+
       - name: Prepare named asset and notes
         shell: bash
         run: |
           VERSION_NAME=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= *([0-9]+).*/\1/')
           cp app/build/outputs/apk/release/app-release.apk "lovely-camp-v${VERSION_NAME}.apk"
           SHA256=$(sha256sum "lovely-camp-v${VERSION_NAME}.apk" | awk '{print $1}')
           printf '老婆的小营地 v%s\n\n自动构建并签名。\n\nSHA-256: `%s`\n' "$VERSION_NAME" "$SHA256" > release-notes.md
+          python3 - "$VERSION_NAME" "$VERSION_CODE" "$SHA256" <<'PY'
+          import json
+          import sys
+          version_name, version_code, sha256 = sys.argv[1:]
+          manifest = {
+              "tag": f"v{version_name}+{version_code}",
+              "versionName": version_name,
+              "versionCode": int(version_code),
+              "asset": f"lovely-camp-v{version_name}.apk",
+              "sha256": sha256,
+              "tests": "testDebugUnitTest",
+          }
+          with open("release-manifest.json", "w", encoding="utf-8") as stream:
+              json.dump(manifest, stream, ensure_ascii=False, indent=2)
+              stream.write("\n")
+          PY
 
       - name: Create GitHub Release and upload APK
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
           body_path: release-notes.md
-          files: lovely-camp-v*.apk
+          files: |
+            lovely-camp-v*.apk
+            release-manifest.json
           fail_on_unmatched_files: true
+
+      - name: Verify published release asset and digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")
+          EXPECTED_NAME=$(python3 -c 'import json; print(json.load(open("release-manifest.json"))["asset"])')
+          export RELEASE_JSON EXPECTED_NAME
+          python3 - <<'PY'
+          import json
+          import os
+          expected = os.environ["EXPECTED_NAME"]
+          release = json.loads(os.environ["RELEASE_JSON"])
+          assert any(asset.get("name") == expected for asset in release.get("assets", [])), expected
+          PY
+          echo "$RELEASE_JSON" | grep -F 'release-manifest.json'

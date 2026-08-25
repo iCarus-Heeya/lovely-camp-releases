@@ -93,6 +93,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextIndent
@@ -111,6 +113,8 @@ import com.lovelyreader.domain.ChapterContent
 import com.lovelyreader.domain.RankingPeriod
 import com.lovelyreader.domain.SearchResult
 import com.lovelyreader.domain.SourceCapability
+import com.lovelyreader.performance.PerformancePolicy
+import com.lovelyreader.ui.reader.ReaderPreferences
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.theme.bookshelfHeaderGradient
 import com.lovelyreader.update.UpdateDownloadPhase
@@ -370,6 +374,7 @@ fun SearchScreen(
     rankingMessage: String,
     randomMessage: String,
     searchHistory: List<String>,
+    initialQuery: String = "",
     onBack: () -> Unit,
     onSearch: (String) -> Unit,
     onRankingChanged: (RankingPeriod, String) -> Unit,
@@ -382,7 +387,7 @@ fun SearchScreen(
     experienceSwitch: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     var mode by remember { mutableStateOf(SearchMode.Search) }
     var period by remember { mutableStateOf(RankingPeriod.MONTH) }
     var searchFilter by remember { mutableStateOf(SearchFilter.All) }
@@ -734,6 +739,7 @@ fun BookDetailScreen(
     detail: BookDetail?,
     onBack: () -> Unit,
     onAddToShelf: () -> Unit,
+    onAuthorClick: (String) -> Unit = {},
     experienceSwitch: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
@@ -788,8 +794,22 @@ fun BookDetailScreen(
                         )
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(detail?.book?.title ?: result.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                 Text((detail?.book?.author ?: result.author).ifBlank { "未知作者" }, color = appColors().roseDust, style = MaterialTheme.typography.titleMedium)
+                             val rawAuthor = detail?.book?.author ?: result.author
+                             val author = rawAuthor.ifBlank { "未知作者" }
+                             Row(
+                                 modifier = Modifier
+                                     .then(
+                                         if (rawAuthor.isBlank()) {
+                                             Modifier
+                                         } else {
+                                             Modifier
+                                                 .clickable { onAuthorClick(normalizedAuthorSearchQuery(rawAuthor)) }
+                                                 .semantics { contentDescription = "搜索作者 $author" }
+                                         }
+                                     ),
+                                 verticalAlignment = Alignment.CenterVertically
+                             ) {
+                                 Text(author, color = appColors().roseDust, style = MaterialTheme.typography.titleMedium)
                                  Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = appColors().roseDust, modifier = Modifier.size(20.dp))
                              }
                              detail?.category?.takeIf(String::isNotBlank)?.let {
@@ -826,11 +846,14 @@ fun BookDetailScreen(
                     }
                 }
             }
-            item {
-                SoftPanel {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Outlined.Download, contentDescription = null, tint = appColors().roseDust, modifier = Modifier.size(28.dp))
-                        Text(detail?.offlineLabel ?: capabilityLabel(result), style = MaterialTheme.typography.bodyLarge, color = appColors().ink)
+            val offlineCapability = detail?.offlineLabel ?: capabilityLabel(result)
+            if (shouldShowOfflineCapabilityPanel(offlineCapability)) {
+                item {
+                    SoftPanel {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Outlined.Download, contentDescription = null, tint = appColors().roseDust, modifier = Modifier.size(28.dp))
+                            Text(offlineCapability, style = MaterialTheme.typography.bodyLarge, color = appColors().ink)
+                        }
                     }
                 }
             }
@@ -857,6 +880,7 @@ fun ReaderScreen(
     isLoadingChapter: Boolean,
     chapterLoadAttempted: Boolean,
     initialFontSize: Int,
+    initialLineSpacing: Int = 16,
     initialNightMode: Boolean,
     initialScrollIndex: Int,
     initialScrollOffset: Int,
@@ -864,12 +888,21 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onPositionChanged: (percent: Int, index: Int, offset: Int) -> Unit,
     onFontSizeChanged: (Int) -> Unit,
+    onLineSpacingChanged: (Int) -> Unit = {},
     onNightModeChanged: (Boolean) -> Unit,
     progressLabelOverride: String? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
-    var fontSize by remember { mutableStateOf(initialFontSize.coerceIn(14, 24)) }
-    var nightMode by remember { mutableStateOf(initialNightMode) }
+    val normalizedInitialPreferences = remember(book.id) {
+        ReaderPreferences(
+            fontSize = initialFontSize,
+            lineSpacing = initialLineSpacing,
+            nightMode = initialNightMode
+        ).normalized()
+    }
+    var fontSize by remember { mutableStateOf(normalizedInitialPreferences.fontSize) }
+    var lineSpacing by remember { mutableStateOf(normalizedInitialPreferences.lineSpacing) }
+    var nightMode by remember { mutableStateOf(normalizedInitialPreferences.nightMode) }
     val loadingText = remember(book.id) { WarmPhrases.readerLoading.random() }
     val failedText = remember(book.id) { WarmPhrases.readerFailed.random() }
     val pageColor = if (nightMode) {
@@ -907,8 +940,9 @@ fun ReaderScreen(
     LaunchedEffect(book.id) {
         loadChapter()
     }
-    LaunchedEffect(fontSize, nightMode) {
+    LaunchedEffect(fontSize, lineSpacing, nightMode) {
         onFontSizeChanged(fontSize)
+        onLineSpacingChanged(lineSpacing)
         onNightModeChanged(nightMode)
     }
 
@@ -931,12 +965,15 @@ fun ReaderScreen(
             val startPadding = readerLayout.readerTextStartPaddingDp.dp
             val endPadding = readerLayout.readerTextEndPaddingDp.dp
             val topPadding = readerLayout.readerContentTopInsetDp.dp
-            val bottomPadding = if (showReaderBottomMenu) 144.dp else readerLayout.readerContentBottomInsetDp.dp
+            val bottomPadding = readerContentBottomInsetDp(
+                baseInsetDp = readerLayout.readerContentBottomInsetDp,
+                showBottomMenu = showReaderBottomMenu
+            ).dp
             val pageWidthPx = with(density) { (maxWidth - startPadding - endPadding).roundToPx() }
             val pageHeightPx = with(density) { (maxHeight - topPadding - bottomPadding).roundToPx() }
             val textStyle = TextStyle(
                 fontSize = fontSize.sp,
-                lineHeight = (fontSize + 16).sp,
+                lineHeight = (fontSize + lineSpacing).sp,
                 textIndent = TextIndent(firstLine = fontSize.sp)
             )
             val textMeasurer = rememberTextMeasurer()
@@ -956,7 +993,7 @@ fun ReaderScreen(
             var pageLayoutGeneration by remember(book.id) { mutableStateOf(0) }
             LaunchedEffect(rawText, fontSize, pageWidthPx, pageHeightPx) {
                 if (rawText.isBlank() || pageWidthPx <= 0 || pageHeightPx <= 0) return@LaunchedEffect
-                val cacheKey = PageCacheKey(book.id, fontSize, pageWidthPx, pageHeightPx)
+                val cacheKey = PageCacheKey(book.id, fontSize, lineSpacing, pageWidthPx, pageHeightPx)
                 val cached = readerPageCache[cacheKey]
                 if (cached != null && cached.pages.isNotEmpty() && rawText.isNotBlank()) {
                     pages = cached.pages
@@ -970,7 +1007,7 @@ fun ReaderScreen(
                 pages = result.pages
                 chapters = result.chapters
                 if (result.pages.isNotEmpty()) {
-                    if (readerPageCache.size >= 3) {
+                    if (readerPageCache.size >= PerformancePolicy.readerPageCacheLimit) {
                         readerPageCache.remove(readerPageCache.keys.first())
                 }
                 readerPageCache[cacheKey] = CachedReaderPages(result.pages, result.chapters)
@@ -991,17 +1028,19 @@ fun ReaderScreen(
             // that work, then map it to the new page count when the result is
             // ready. This keeps the reader at the same part of the book.
             var pendingFontProgress by remember(book.id) { mutableStateOf<Float?>(null) }
-            // Opening or closing the bottom menu changes the measured page
-            // height. Preserve the current logical position across that
-            // relayout as well; otherwise the newly-created pager starts at
-            // the first page whenever reader chrome is toggled.
-            var pendingRelayoutProgress by remember(book.id) { mutableStateOf<Float?>(null) }
-
             fun requestFontSize(nextSize: Int) {
                 val next = nextSize.coerceIn(14, 24)
                 if (next != fontSize) {
                     pendingFontProgress = currentProgress
                     fontSize = next
+                }
+            }
+
+            fun requestLineSpacing(nextSpacing: Int) {
+                val next = nextSpacing.coerceIn(12, 32)
+                if (next != lineSpacing) {
+                    pendingFontProgress = currentProgress
+                    lineSpacing = next
                 }
             }
 
@@ -1012,9 +1051,6 @@ fun ReaderScreen(
                         showBottomMenu = showReaderBottomMenu
                     )
                 )
-                if (nextState.showBottomMenu != showReaderBottomMenu) {
-                    pendingRelayoutProgress = currentProgress
-                }
                 showReaderChrome = nextState.showChrome
                 showReaderBottomMenu = nextState.showBottomMenu
             }
@@ -1062,11 +1098,10 @@ fun ReaderScreen(
 
                 LaunchedEffect(pageLayoutGeneration, book.id) {
                     if (pages.isEmpty()) return@LaunchedEffect
-                    val pendingProgress = pendingFontProgress ?: pendingRelayoutProgress
+                    val pendingProgress = pendingFontProgress
                     if (pendingProgress != null) {
                         val target = readerPageForProgress(pendingProgress, pages.size)
                         pendingFontProgress = null
-                        pendingRelayoutProgress = null
                         if (pagerState.currentPage != target) {
                             pagerState.scrollToPage(target)
                         }
@@ -1220,9 +1255,11 @@ fun ReaderScreen(
                 ReaderBottomMenu(
                     nightMode = nightMode,
                     fontSize = fontSize,
+                    lineSpacing = lineSpacing,
                     currentProgress = currentProgress,
                     onNightModeToggle = { nightMode = !nightMode },
                     onFontSizeChange = ::requestFontSize,
+                    onLineSpacingChange = ::requestLineSpacing,
                     onProgressClick = { showProgressSlider = !showProgressSlider },
                     onCatalogClick = { showCatalog = !showCatalog }
                 )
@@ -1374,9 +1411,11 @@ fun ReaderScreen(
 private fun ReaderBottomMenu(
     nightMode: Boolean,
     fontSize: Int,
+    lineSpacing: Int,
     currentProgress: Float,
     onNightModeToggle: () -> Unit,
     onFontSizeChange: (Int) -> Unit,
+    onLineSpacingChange: (Int) -> Unit,
     onProgressClick: () -> Unit,
     onCatalogClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1442,6 +1481,30 @@ private fun ReaderBottomMenu(
                             color = appColors().cocoa.copy(alpha = 0.8f),
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    IconButton(
+                        onClick = { onLineSpacingChange(lineSpacing - 2) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("↕", fontSize = 12.sp, color = appColors().cocoa.copy(alpha = 0.8f))
+                    }
+                    Text(
+                        text = "$lineSpacing",
+                        fontSize = 12.sp,
+                        color = appColors().cocoa,
+                        modifier = Modifier.width(26.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    IconButton(
+                        onClick = { onLineSpacingChange(lineSpacing + 2) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("↕", fontSize = 16.sp, color = appColors().cocoa.copy(alpha = 0.8f))
                     }
                 }
                 ReaderProgressMenuButton(
@@ -1534,7 +1597,10 @@ fun SettingsScreen(
     updateHistoryMessage: String = "",
     onLoadUpdateHistory: () -> Unit = {},
     onOpenVisualFixture: (() -> Unit)? = null,
-    updateCoverUrl: String? = null
+    updateCoverUrl: String? = null,
+    onExportBackup: () -> Unit = {},
+    onImportBackup: () -> Unit = {},
+    backupMessage: String = ""
 ) {
     val noteOfTheMoment = remember { WarmPhrases.notes.random() }
     Scaffold(
@@ -1566,6 +1632,13 @@ fun SettingsScreen(
                     updateCoverUrl = updateCoverUrl
                 )
             }
+            item {
+                BackupPanel(
+                    onExportBackup = onExportBackup,
+                    onImportBackup = onImportBackup,
+                    message = backupMessage
+                )
+            }
             onOpenVisualFixture?.let { openFixture ->
                 item {
                     DebugVisualAcceptancePanel(onOpen = openFixture)
@@ -1590,6 +1663,28 @@ fun SettingsScreen(
                 NotesPanel(noteOfTheMoment = noteOfTheMoment, notes = notes)
             }
             }
+        }
+    }
+}
+
+@Composable
+private fun BackupPanel(onExportBackup: () -> Unit, onImportBackup: () -> Unit, message: String) {
+    SoftPanel {
+        Text("书架备份", style = MaterialTheme.typography.titleLarge, color = appColors().ink)
+        Text(
+            "导出书架、阅读进度、书签和小纸条；导入前会校验备份完整性。",
+            color = appColors().cocoa.copy(alpha = .72f)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) { Text("导入备份") }
+            Button(
+                onClick = onExportBackup,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
+            ) { Text("导出备份") }
+        }
+        message.takeIf(String::isNotBlank)?.let {
+            Text(it, color = appColors().roseDust, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -2273,6 +2368,15 @@ private fun capabilityLabel(result: SearchResult): String {
     }
 }
 
+internal fun normalizedAuthorSearchQuery(author: String): String = author.trim()
+
+/** Negative capability copy is informational, not a user action. */
+internal fun shouldShowOfflineCapabilityPanel(label: String?): Boolean {
+    val value = label?.trim().orEmpty()
+    if (value.isBlank()) return false
+    return listOf("暂不支持", "暂不可", "不支持", "不可").none(value::contains)
+}
+
 @Composable
 private fun ReaderLoadingOverlay(
     book: Book,
@@ -2594,6 +2698,7 @@ data class PaginationResult(
 private data class PageCacheKey(
     val bookId: String,
     val fontSize: Int,
+    val lineSpacing: Int,
     val pageWidthPx: Int,
     val pageHeightPx: Int
 )

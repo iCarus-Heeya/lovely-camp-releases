@@ -27,6 +27,7 @@ import com.lovelyreader.source.QinkanSource
 import com.lovelyreader.source.QisuwangSource
 import com.lovelyreader.source.SearchResultMerger
 import com.lovelyreader.source.SourceContentGuard
+import com.lovelyreader.source.SourceHealthLedger
 import com.lovelyreader.source.ZxcsSource
 import com.lovelyreader.source.normalizedBookIdentity
 import com.lovelyreader.source.compatibleWithAny
@@ -36,6 +37,9 @@ import com.lovelyreader.sync.ReadingEvent
 import com.lovelyreader.sync.ReadingEventType
 import com.lovelyreader.sync.ReadingLogSync
 import com.lovelyreader.ui.downloadBookWithFallback
+import com.lovelyreader.ui.navigation.nextReaderRoute
+import com.lovelyreader.network.NetworkRetryPolicy
+import com.lovelyreader.network.retryNetwork
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -70,6 +74,7 @@ internal class LibraryViewModel(
 ) : ViewModel() {
 
     private val sources = listOf(IxdzsSource(), IjjxsSource(), QisuwangSource(), QinkanSource(), ZxcsSource())
+    private val sourceHealth = SourceHealthLedger()
     private val discoveryRotation = DiscoveryRotation()
     private val discoveryCoordinator = DiscoveryCoordinator(discoveryRotation)
 
@@ -111,6 +116,9 @@ internal class LibraryViewModel(
 
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
+    private val _searchSeed = MutableStateFlow("")
+    val searchSeed: StateFlow<String> = _searchSeed.asStateFlow()
 
     private var searchJob: Job? = null
     private var rankingJob: Job? = null
@@ -210,7 +218,16 @@ internal class LibraryViewModel(
 
     fun openSearch() {
         recordReaderExitProgress()
+        _searchSeed.value = ""
         _screen.value = Screen.Search
+    }
+
+    fun openSearchFor(author: String) {
+        val query = author.trim()
+        recordReaderExitProgress()
+        _searchSeed.value = query
+        _screen.value = Screen.Search
+        performSearch(query)
     }
 
     fun openReader() {
@@ -233,7 +250,7 @@ internal class LibraryViewModel(
     }
 
     fun navigateBack() {
-        readerBackDestination(_screen.value)?.let { destination ->
+        nextReaderRoute(_screen.value)?.let { destination ->
             _screen.value = destination
         }
     }
@@ -293,13 +310,20 @@ internal class LibraryViewModel(
         rankingJob = viewModelScope.launch {
             try {
                 val sourceResults = sources.mapNotNull { source ->
+                    if (!sourceHealth.canRequest(source.sourceId)) return@mapNotNull null
                     (source as? BrowsableNovelSource)?.let { source to it }
                 }.map { (source, browse) ->
                     async {
-                        source.sourceId to safeCategoryBrowse(10_000) {
+                        val result = safeCategoryBrowse(10_000) {
                             if (category == "全部") browse.homepageFeatured()
                             else browse.categoryBrowse(category, 1)
                         }
+                        when (result) {
+                            is CategoryBrowseResult.Success -> sourceHealth.recordSuccess(source.sourceId)
+                            is CategoryBrowseResult.Failure -> sourceHealth.recordFailure(source.sourceId, result.reason)
+                            CategoryBrowseResult.Unsupported -> Unit
+                        }
+                        source.sourceId to result
                     }
                 }
                 .awaitAll()
@@ -310,6 +334,8 @@ internal class LibraryViewModel(
                     _rankingResults.value = SearchResultMerger.merge(successes.flatMap { it.items })
                         .filterNot { compatibleWithAny(normalizedBookIdentity(it), seenBooks) }
                     _rankingMessage.value = when {
+                        sourceResults.isEmpty() && sources.any { !sourceHealth.canRequest(it.sourceId) } ->
+                            "来源暂时不可用，请稍后重试；这不是“没有找到”。"
                         successes.isEmpty() && failures > 0 -> "来源网络请求失败，请稍后重试；现有内容没有被当作页尾。"
                         successes.isEmpty() -> "没有来源能精确提供「$category」分类，不会回退到近似栏目。"
                         _rankingResults.value.isEmpty() -> if (category == "全部") {
@@ -366,6 +392,7 @@ internal class LibraryViewModel(
                         DiscoveryLoadStatus.UNSUPPORTED -> "没有来源能精确提供「$category」分类，不会回退到近似栏目。"
                         DiscoveryLoadStatus.EXHAUSTED -> "「$category」本轮已经看完，不会自动重复；可点“重新开始”重置。"
                         DiscoveryLoadStatus.NO_NEW_ITEMS -> "这一页没有未展示过的新书，页码已继续向后；再点一次换一批。"
+                        DiscoveryLoadStatus.SOURCE_UNAVAILABLE -> "来源暂时不可用，请稍后重试；这不是“没有找到”。"
                         DiscoveryLoadStatus.STALE -> return@launch
                     }
                 }
@@ -414,11 +441,19 @@ internal class LibraryViewModel(
         _searchResults.value = emptyList()
         searchJob = viewModelScope.launch {
             try {
-                val all = sources.map { source ->
+                val eligibleSources = sources.filter { sourceHealth.canRequest(it.sourceId) }
+                val all = eligibleSources.map { source ->
                     async {
                         withContext(Dispatchers.Default) {
                             withTimeoutOrNull(12_000) {
-                                runCatching { source.search(query) }.getOrDefault(emptyList())
+                                runCatching {
+                                    retryNetwork(
+                                        policy = NetworkRetryPolicy(maxAttempts = 2, initialDelayMillis = 400L, maxDelayMillis = 800L),
+                                        request = { source.search(query) }
+                                    )
+                                }.onSuccess { sourceHealth.recordSuccess(source.sourceId) }
+                                    .onFailure { sourceHealth.recordFailure(source.sourceId, it::class.simpleName.orEmpty()) }
+                                    .getOrDefault(emptyList())
                             }.orEmpty()
                         }
                     }
@@ -426,10 +461,12 @@ internal class LibraryViewModel(
                 val merged = SearchResultMerger.merge(all.flatten())
                 if (searchRunId == runId) {
                     _searchResults.value = merged
-                    _searchMessage.value = if (merged.isEmpty()) {
+                    _searchMessage.value = when {
+                        eligibleSources.isEmpty() -> "来源暂时不可用，请稍后重试；这不是“没有找到”。"
+                        merged.isEmpty() -> {
                         WarmPhrases.searchEmpty.random()
-                    } else {
-                        "已经从优先来源找到 ${merged.size} 条结果。"
+                        }
+                        else -> "已经从优先来源找到 ${merged.size} 条结果。"
                     }
                 }
             } finally {
@@ -577,6 +614,13 @@ internal class LibraryViewModel(
         repository.updateReaderPreferences(fontSize = fontSize)
         persist()
     }
+
+    fun readerLineSpacing(): Int = repository.readerLineSpacing()
+
+    fun updateReaderLineSpacing(lineSpacing: Int) {
+        repository.updateReaderPreferences(lineSpacing = lineSpacing)
+        persist()
+    }
     fun updateReaderNightMode(nightMode: Boolean) {
         repository.updateReaderPreferences(nightMode = nightMode)
         persist()
@@ -590,6 +634,22 @@ internal class LibraryViewModel(
 
     fun bookById(bookId: String): Book? = repository.bookById(bookId)
     fun notes(): List<String> = repository.husbandNotes().map { it.message }
+
+    fun snapshotForBackup(): LibrarySnapshot = repository.snapshot()
+
+    fun restoreBackup(snapshot: LibrarySnapshot) {
+        repository.restore(snapshot)
+        _appTheme.value = repository.appTheme
+        _shelfBooks.value = repository.bookshelf()
+        _downloadStatuses.value = repository.bookshelf().associate { book ->
+            book.id to if (repository.offlineChapterFor(book.id) != null) {
+                BookDownloadStatus(DownloadState.Ready, 100)
+            } else {
+                BookDownloadStatus()
+            }
+        }
+        persist()
+    }
 
     fun downloadStatusFor(bookId: String): BookDownloadStatus {
         return _downloadStatuses.value[bookId] ?: if (isBookReady(bookId)) {

@@ -68,8 +68,14 @@ class ReaderTextPagerTest {
             readerChromeStateAfterCenterTap(ReaderChromeState(showChrome = true, showBottomMenu = false))
         )
         assertEquals(
-            ReaderChromeState(showChrome = true, showBottomMenu = false),
+            ReaderChromeState(showChrome = false, showBottomMenu = false),
             readerChromeStateAfterCenterTap(ReaderChromeState(showChrome = true, showBottomMenu = true))
         )
+    }
+
+    @Test
+    fun readerMenuOverlayDoesNotChangeContentInset() {
+        assertEquals(24, readerContentBottomInsetDp(baseInsetDp = 24, showBottomMenu = false))
+        assertEquals(24, readerContentBottomInsetDp(baseInsetDp = 24, showBottomMenu = true))
     }
 }
