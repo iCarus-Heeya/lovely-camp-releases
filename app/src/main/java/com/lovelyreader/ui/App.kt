@@ -75,7 +75,9 @@ import com.lovelyreader.update.UpdateDownloadPhase
 import com.lovelyreader.update.UpdateDownloadProgress
 import com.lovelyreader.update.UpdateHistoryEntry
 import com.lovelyreader.update.UpdateCheckResult
+import com.lovelyreader.update.formatUpdateFailureMessage
 import com.lovelyreader.update.formatUpdateDownloadProgress
+import com.lovelyreader.update.isUpdateDownloadActive
 import androidx.compose.runtime.collectAsState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -217,7 +219,7 @@ fun LovelyReaderApp(
             downloadedBytes = 0L,
             totalBytes = null,
             speedBytesPerSecond = 0L,
-            phase = UpdateDownloadPhase.Downloading
+            phase = UpdateDownloadPhase.Connecting
         )
         videoScope.launch {
             appUpdater.downloadAndPrepare(manifest) { progress ->
@@ -233,7 +235,7 @@ fun LovelyReaderApp(
                 }
             }.onFailure {
                 updateDownloadProgress = null
-                updateMessage = it.message ?: "更新包下载失败"
+                updateMessage = formatUpdateFailureMessage(it)
             }
         }
     }
@@ -342,19 +344,27 @@ fun LovelyReaderApp(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = appColors().roseDust
                             )
-                            if (progress.phase == UpdateDownloadPhase.Downloading) {
-                                progress.fraction?.let { fraction ->
+                            if (isUpdateDownloadActive(progress)) {
+                                if (progress.phase == UpdateDownloadPhase.Connecting) {
                                     androidx.compose.material3.LinearProgressIndicator(
-                                        progress = { fraction },
                                         modifier = Modifier.fillMaxWidth(),
                                         color = appColors().roseDust,
                                         trackColor = appColors().almond.copy(alpha = .65f)
                                     )
-                                } ?: androidx.compose.material3.LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = appColors().roseDust,
-                                    trackColor = appColors().almond.copy(alpha = .65f)
-                                )
+                                } else {
+                                    progress.fraction?.let { fraction ->
+                                        androidx.compose.material3.LinearProgressIndicator(
+                                            progress = { fraction },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            color = appColors().roseDust,
+                                            trackColor = appColors().almond.copy(alpha = .65f)
+                                        )
+                                    } ?: androidx.compose.material3.LinearProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = appColors().roseDust,
+                                        trackColor = appColors().almond.copy(alpha = .65f)
+                                    )
+                                }
                             }
                         }
                         updateMessage.takeIf { it.isNotBlank() }?.let {
@@ -365,7 +375,7 @@ fun LovelyReaderApp(
                 confirmButton = {
                     Button(onClick = {
                         startUpdateDownload(manifest)
-                    }, enabled = updateDownloadProgress?.phase != UpdateDownloadPhase.Downloading) {
+                    }, enabled = !isUpdateDownloadActive(updateDownloadProgress)) {
                         Text(if (updateDownloadProgress?.phase == UpdateDownloadPhase.Ready) "再次下载" else "立即更新")
                     }
                 },

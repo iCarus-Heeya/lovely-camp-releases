@@ -1,9 +1,14 @@
 # Project Memory
 
-## 2026-08-26 — 更新器家庭网络可达性候选（未发布）
+## 2026-08-26 — 更新器跨网络不可达与进度语义修正（未发布）
 
+- 用户已明确：追剧搜索/播放器失败是家庭 Wi‑Fi 的独立片源问题；更新器则在任何网络不开 VPN 都无法更新，且下载进度停在 0。两条链路不能混用。
 - 当前线上 Latest 仍是 `v0.9.1+88`；本轮没有升版本号、没有生成可发布的新版本或创建 GitHub Release。候选 Release 仅在 ASCII 临时副本中构建用于校验。
+- 更新器唯一生产源仍是 GitHub API/Release asset；全网络 VPN 依赖说明主因是 GitHub 更新源或其资产链路被网络侧阻断，而不是家庭路由器的单一 DNS 异常。可信 DNS 回退只能覆盖部分 DNS/IPv6 异常，不能解决整体封锁。
+- 下载 UI 已将首字节前的状态从“下载中 0”改为“正在连接下载源…”，网络失败改为明确的“更新源暂时不可达，尚未收到安装包数据”；这只修正状态语义，不替代可直连的首方镜像/CDN。
+- 状态语义候选 `C:\CodexTemp\update-source-blocked-final1` 全量 346 tests、0 failures、0 errors、8 skipped，Debug/Release assemble 成功；Release 仍为 88/0.9.1，SHA-256 `035B8C6598997A7EA7CF754D9D6389D1AF6E1F8F72AE7867439224440A77C20A`，37,112,827 bytes，v2 一签名且 zipalign 通过。
 - 源码候选已在本地 `main` 提交（`fix: harden updater for restricted home networks`），尚未 push/tag/release。
+- 最新本地提交另包含 `fix: clarify updater connection progress`；两次提交均尚未 push/tag/release。
 - `AndroidAppUpdater` 现在在 GitHub 更新主机的 DNS/IO/超时连接失败后，按严格白名单使用 AliDNS 固定引导 IPv4 回退；Host、TLS SNI、系统证书链和主机名校验保持不变，下载 Range/摘要校验链路不变。
 - `ResumableFileDownloader` 的连接提供器改为可挂起函数，以便回退解析在 IO 协程执行。
 - RED→GREEN：`UpdateTrustedDnsPolicyTest`；最终 ASCII 候选 `C:\CodexTemp\update-trusted-dns-final4` 全量 344 tests、0 failures、0 errors、8 skipped，Debug/Release assemble 成功；Release APK versionCode/name 仍为 88/0.9.1，SHA-256 `8223A92A0827F25F9170943127B9E7E9294A11072E2CFF2DB8E61F0CF51287F8`，37,112,689 bytes，v2 一签名且 zipalign 通过。另加固 403/451 非 JSON 拦截页回退，并拒绝可信回退的非 2xx 响应。

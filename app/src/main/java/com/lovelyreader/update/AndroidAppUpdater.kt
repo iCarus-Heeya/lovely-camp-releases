@@ -84,6 +84,14 @@ class AndroidAppUpdater(private val context: Context) {
         onProgress: suspend (UpdateDownloadProgress) -> Unit = {}
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
+            onProgress(
+                UpdateDownloadProgress(
+                    downloadedBytes = 0L,
+                    totalBytes = null,
+                    speedBytesPerSecond = 0L,
+                    phase = UpdateDownloadPhase.Connecting
+                )
+            )
             ResumableFileDownloader.cleanupStalePartials(
                 directory = context.cacheDir,
                 olderThanMillis = 7L * 24L * 60L * 60L * 1_000L

@@ -121,6 +121,7 @@ import com.lovelyreader.update.UpdateDownloadPhase
 import com.lovelyreader.update.UpdateDownloadProgress
 import com.lovelyreader.update.UpdateHistoryEntry
 import com.lovelyreader.update.formatUpdateDownloadProgress
+import com.lovelyreader.update.isUpdateDownloadActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1832,8 +1833,14 @@ private fun HighFidelityUpdatePanel(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (progress.phase == UpdateDownloadPhase.Downloading) {
-                    progress.fraction?.let { fraction ->
+                if (isUpdateDownloadActive(progress)) {
+                    if (progress.phase == UpdateDownloadPhase.Connecting) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(6.dp),
+                            color = appColors().roseDust,
+                            trackColor = appColors().almond.copy(alpha = .65f)
+                        )
+                    } else progress.fraction?.let { fraction ->
                         LinearProgressIndicator(
                             progress = { fraction },
                             modifier = Modifier.fillMaxWidth().height(6.dp),
@@ -1850,7 +1857,7 @@ private fun HighFidelityUpdatePanel(
         }
         OutlinedButton(
             onClick = onCheckUpdate,
-            enabled = updateDownloadProgress?.phase != UpdateDownloadPhase.Downloading,
+            enabled = !isUpdateDownloadActive(updateDownloadProgress),
             modifier = Modifier.fillMaxWidth().height(settingsLayout.updateActionHeightDp.dp),
             shape = RoundedCornerShape(28.dp),
             border = BorderStroke(1.dp, appColors().roseBeige),
@@ -1859,7 +1866,7 @@ private fun HighFidelityUpdatePanel(
         updateAvailable?.let { manifest ->
             Button(
                 onClick = { onInstallUpdate(manifest) },
-                enabled = updateDownloadProgress?.phase != UpdateDownloadPhase.Downloading,
+                enabled = !isUpdateDownloadActive(updateDownloadProgress),
                 modifier = Modifier.fillMaxWidth().height(settingsLayout.updateActionHeightDp.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust, contentColor = Color.White)
