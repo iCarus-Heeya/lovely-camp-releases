@@ -139,4 +139,25 @@ class AppUpdateTest {
         assertEquals("1 KB", formatUpdateDownloadTransfer(progress))
         assertEquals("计算中…", formatUpdateDownloadSpeed(progress.speedBytesPerSecond))
     }
+
+    @Test
+    fun `connecting phase does not present zero bytes as downloaded progress`() {
+        val progress = UpdateDownloadProgress(
+            downloadedBytes = 0L,
+            totalBytes = null,
+            speedBytesPerSecond = 0L,
+            phase = UpdateDownloadPhase.Connecting
+        )
+
+        assertEquals("正在连接下载源…", formatUpdateDownloadProgress(progress))
+        assertTrue(isUpdateDownloadActive(progress))
+    }
+
+    @Test
+    fun `network download failures use a source-unreachable message`() {
+        assertEquals(
+            "更新源暂时不可达，尚未收到安装包数据，请稍后重试",
+            formatUpdateFailureMessage(java.io.IOException("timeout"))
+        )
+    }
 }

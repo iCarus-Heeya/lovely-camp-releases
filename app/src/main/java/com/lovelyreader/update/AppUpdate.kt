@@ -21,6 +21,7 @@ data class UpdateHistoryEntry(
 )
 
 enum class UpdateDownloadPhase {
+    Connecting,
     Downloading,
     Verifying,
     Ready
@@ -58,10 +59,25 @@ internal fun formatUpdateDownloadProgress(progress: UpdateDownloadProgress): Str
     val percent = progress.percent?.let { "$it% · " }.orEmpty()
     val transfer = formatUpdateDownloadTransfer(progress)
     return when (progress.phase) {
+        UpdateDownloadPhase.Connecting -> "正在连接下载源…"
         UpdateDownloadPhase.Downloading ->
             "下载中 · $percent$transfer · ${formatUpdateDownloadSpeed(progress.speedBytesPerSecond)}"
         UpdateDownloadPhase.Verifying -> "正在校验 · $transfer"
         UpdateDownloadPhase.Ready -> "已下载 · $transfer"
+    }
+}
+
+internal fun isUpdateDownloadActive(progress: UpdateDownloadProgress?): Boolean =
+    progress?.phase == UpdateDownloadPhase.Connecting ||
+        progress?.phase == UpdateDownloadPhase.Downloading
+
+internal fun formatUpdateFailureMessage(error: Throwable): String {
+    val isNetworkFailure = generateSequence(error) { it.cause }
+        .any { it is java.io.IOException }
+    return if (isNetworkFailure) {
+        "更新源暂时不可达，尚未收到安装包数据，请稍后重试"
+    } else {
+        error.message?.takeIf(String::isNotBlank) ?: "更新包下载失败，请稍后重试"
     }
 }
 
