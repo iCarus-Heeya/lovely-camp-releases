@@ -10,6 +10,7 @@ import com.lovelyreader.download.DownloadConnection
 import com.lovelyreader.download.DownloadTransferProgress
 import com.lovelyreader.download.ResumableFileDownloader
 import com.lovelyreader.network.NetworkRetryPolicy
+import com.lovelyreader.network.isTransientNetworkFailure
 import com.lovelyreader.network.retryNetwork
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -35,6 +36,7 @@ sealed interface UpdateCheckResult {
 }
 
 class AndroidAppUpdater(private val context: Context) {
+    private val trustedDnsFallback = AndroidTrustedUpdateDnsFallback(context.applicationContext)
     private val automaticCheckPreferences = context.getSharedPreferences(
         AUTOMATIC_CHECK_PREFERENCES,
         Context.MODE_PRIVATE
@@ -157,17 +159,46 @@ class AndroidAppUpdater(private val context: Context) {
         wait = { delay(it) }
     )
 
-    private fun getText(address: String): String {
-        val connection = openRawHttps(address)
+    private suspend fun getText(address: String): String {
+        val connection = openConnectionWithFallback(address)
         return try {
-            when (val responseCode = connection.responseCode) {
-                in 200..299 -> connection.inputStream.bufferedReader().use { it.readText() }
-                in 500..599 -> throw IOException("更新服务响应异常：$responseCode")
-                else -> error("更新服务响应异常：$responseCode")
+            val responseCode = connection.responseCode
+            val body = readResponseBody(connection, responseCode)
+            if (shouldRetryTrustedUpdateResponse(responseCode, body)) {
+                val fallbackConnection = trustedDnsFallback.open(URL(address))
+                    ?.let(::configureRawHttps)
+                if (fallbackConnection != null) {
+                    try {
+                        connectCandidate(fallbackConnection) { }
+                        val fallbackResponseCode = fallbackConnection.responseCode
+                        if (fallbackResponseCode !in 200..299) {
+                            throw IOException("可信更新服务响应异常：$fallbackResponseCode")
+                        }
+                        return readResponseBody(fallbackConnection, fallbackResponseCode)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                        // Fall through to a bounded retry with a clear network failure.
+                    } finally {
+                        fallbackConnection.disconnect()
+                    }
+                }
+                throw IOException("更新服务返回疑似网络拦截页")
             }
+            if (responseCode !in 200..299) throw IOException("更新服务响应异常：$responseCode")
+            body
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun readResponseBody(connection: HttpURLConnection, responseCode: Int): String {
+        val stream = if (responseCode >= 400) {
+            connection.errorStream ?: connection.inputStream
+        } else {
+            connection.inputStream
+        }
+        return stream.bufferedReader().use { it.readText() }
     }
 
     private fun lastAutomaticAttemptMillis(): Long? {
@@ -182,11 +213,11 @@ class AndroidAppUpdater(private val context: Context) {
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun openResumableConnection(address: String, startByte: Long): DownloadConnection {
+    private suspend fun openResumableConnection(address: String, startByte: Long): DownloadConnection {
         var current = address
         repeat(5) {
-            val connection = openRawHttps(current).apply {
-                if (startByte > 0L) setRequestProperty("Range", "bytes=$startByte-")
+            val connection = openConnectionWithFallback(current) {
+                if (startByte > 0L) it.setRequestProperty("Range", "bytes=$startByte-")
             }
             when (connection.responseCode) {
                 in 200..299 -> return object : DownloadConnection {
@@ -198,7 +229,9 @@ class AndroidAppUpdater(private val context: Context) {
                 in 300..399 -> {
                     val location = connection.getHeaderField("Location") ?: error("下载跳转地址缺失")
                     connection.disconnect()
-                    current = URL(URL(current), location).toString()
+                    val next = URL(URL(current), location)
+                    require(isAllowedUpdateAssetHost(next.host)) { "下载跳转到未受信任的主机" }
+                    current = next.toString()
                 }
                 else -> error("安装包下载失败")
             }
@@ -206,16 +239,75 @@ class AndroidAppUpdater(private val context: Context) {
         error("安装包跳转次数过多")
     }
 
+    private suspend fun openConnectionWithFallback(
+        address: String,
+        configure: (HttpURLConnection) -> Unit = {}
+    ): HttpURLConnection {
+        val url = URL(address)
+        val preferTrusted = trustedDnsFallback.shouldPreferFallback(url)
+        var directError: Throwable? = null
+
+        if (!preferTrusted) {
+            try {
+                return connectCandidate(openRawHttps(address), configure)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (!isTransientNetworkFailure(error)) throw error
+                directError = error
+            }
+        }
+
+        val trusted = trustedDnsFallback.open(url)
+        if (trusted != null) {
+            try {
+                return connectCandidate(configureRawHttps(trusted), configure)
+            } catch (error: Throwable) {
+                trusted.disconnect()
+                if (error is CancellationException) throw error
+                if (!isTransientNetworkFailure(error)) throw error
+                directError = directError ?: error
+            }
+        }
+
+        if (preferTrusted) {
+            try {
+                return connectCandidate(openRawHttps(address), configure)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (!isTransientNetworkFailure(error)) throw error
+                directError = directError ?: error
+            }
+        }
+
+        throw directError ?: IOException("更新连接失败")
+    }
+
+    private fun connectCandidate(
+        connection: HttpURLConnection,
+        configure: (HttpURLConnection) -> Unit
+    ): HttpURLConnection = connection.apply {
+        try {
+            configure(this)
+            connect()
+            responseCode
+        } catch (error: Throwable) {
+            disconnect()
+            throw error
+        }
+    }
+
     private fun openRawHttps(address: String): HttpURLConnection {
         val url = URL(address)
         require(url.protocol.equals("https", ignoreCase = true) && !url.host.isNullOrBlank()) { "更新地址必须是 HTTPS" }
-        return (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 60_000
-            instanceFollowRedirects = false
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "LovelyCamp-Android-Updater")
-        }
+        return configureRawHttps(url.openConnection() as HttpURLConnection)
+    }
+
+    private fun configureRawHttps(connection: HttpURLConnection): HttpURLConnection = connection.apply {
+        connectTimeout = 12_000
+        readTimeout = 60_000
+        instanceFollowRedirects = false
+        setRequestProperty("Accept", "application/vnd.github+json")
+        setRequestProperty("User-Agent", "LovelyCamp-Android-Updater")
     }
 
     private fun sha256(file: File): String = file.inputStream().use { input ->
