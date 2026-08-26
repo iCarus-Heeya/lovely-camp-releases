@@ -28,7 +28,7 @@ interface DownloadConnection : AutoCloseable {
 
 /** File downloader with Range resume and atomic target commit. */
 class ResumableFileDownloader(
-    private val open: (url: String, startByte: Long) -> DownloadConnection,
+    private val open: suspend (url: String, startByte: Long) -> DownloadConnection,
     private val nowNanos: () -> Long = System::nanoTime
 ) {
     suspend fun download(

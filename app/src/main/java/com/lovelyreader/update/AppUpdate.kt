@@ -125,7 +125,10 @@ fun parseGitHubReleaseManifest(raw: String): UpdateManifest {
         sha256 = digest,
         notes = json.optString("body").trim(),
         mandatory = false
-    ).also(::validateManifest)
+    ).also {
+        validateManifest(it)
+        validateGitHubAssetHost(it)
+    }
 }
 
 /** Parses stable GitHub releases into user-facing history without exposing delivery metadata. */
@@ -168,4 +171,9 @@ private fun validateManifest(manifest: UpdateManifest) {
     val uri = URI(manifest.apkUrl)
     require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) { "安装包地址必须是 HTTPS" }
     require(manifest.sha256.matches(Regex("[0-9a-f]{64}"))) { "安装包校验值无效" }
+}
+
+private fun validateGitHubAssetHost(manifest: UpdateManifest) {
+    val host = URI(manifest.apkUrl).host.orEmpty()
+    require(isAllowedUpdateAssetHost(host)) { "安装包地址不是受信任的 GitHub 资产地址" }
 }

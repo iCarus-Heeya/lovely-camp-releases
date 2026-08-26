@@ -1,5 +1,15 @@
 # Project Memory
 
+## 2026-08-26 — 更新器家庭网络可达性候选（未发布）
+
+- 当前线上 Latest 仍是 `v0.9.1+88`；本轮没有升版本号、没有生成可发布的新版本或创建 GitHub Release。候选 Release 仅在 ASCII 临时副本中构建用于校验。
+- 源码候选已在本地 `main` 提交（`fix: harden updater for restricted home networks`），尚未 push/tag/release。
+- `AndroidAppUpdater` 现在在 GitHub 更新主机的 DNS/IO/超时连接失败后，按严格白名单使用 AliDNS 固定引导 IPv4 回退；Host、TLS SNI、系统证书链和主机名校验保持不变，下载 Range/摘要校验链路不变。
+- `ResumableFileDownloader` 的连接提供器改为可挂起函数，以便回退解析在 IO 协程执行。
+- RED→GREEN：`UpdateTrustedDnsPolicyTest`；最终 ASCII 候选 `C:\CodexTemp\update-trusted-dns-final4` 全量 344 tests、0 failures、0 errors、8 skipped，Debug/Release assemble 成功；Release APK versionCode/name 仍为 88/0.9.1，SHA-256 `8223A92A0827F25F9170943127B9E7E9294A11072E2CFF2DB8E61F0CF51287F8`，37,112,689 bytes，v2 一签名且 zipalign 通过。另加固 403/451 非 JSON 拦截页回退，并拒绝可信回退的非 2xx 响应。
+- 本机无 VPN 可直连 GitHub API/Release APK；受影响家庭 Wi‑Fi 无 ADB 真机，不能宣称问题已现场闭环。DNS 回退不能穿透 ISP 对 GitHub IP/SNI 的整体封锁；无首方镜像时现有用户仍可能需要一次 VPN/人工 APK 引导。
+- 交付环境另有全局 Git URL 重写到证书过期的 `kkgithub.com`；未修改用户全局配置，后续 push/tag 必须显式隔离该配置直连官方 GitHub。
+
 ## Current candidate refresh: 2026-08-25 Version 0.9.1+88 — visual interaction polish
 
 - Local delivery artifacts: root [Release `老婆的小营地-v0.9.1.apk`](../老婆的小营地-v0.9.1.apk), SHA-256 `878C976DB2C6E3467A6BCD383DDD9B5C85C0CF31650E1755365BE432D4F93569`, 37,104,011 bytes; [Debug `老婆的小营地-debug-v0.9.1.apk`](../老婆的小营地-debug-v0.9.1.apk), SHA-256 `23A0C7CFD689B7B62A5E78C4534AF1ED8E2A66E5E46537C7022BC65996AEDB58`, 48,888,696 bytes. Both built from current source with `versionCode=88`, `versionName=0.9.1`; package `com.lovelyreader`.

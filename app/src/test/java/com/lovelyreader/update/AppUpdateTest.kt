@@ -53,6 +53,24 @@ class AppUpdateTest {
     }
 
     @Test
+    fun `GitHub release asset on an unexpected HTTPS host is rejected`() {
+        val result = parseGitHubLatestRelease(
+            """{
+                "tag_name":"v0.8.6+69",
+                "prerelease":false,
+                "assets":[{
+                    "name":"lovely-camp-v0.8.6.apk",
+                    "browser_download_url":"https://downloads.attacker.example/lovely-camp-v0.8.6.apk",
+                    "digest":"sha256:${"b".repeat(64)}"
+                }]
+            }""".trimIndent(),
+            currentVersionCode = 68
+        )
+
+        assertTrue(result is UpdateAvailability.Invalid)
+    }
+
+    @Test
     fun `a newer HTTPS manifest with a sha256 is offered`() {
         val result = parseUpdateManifest(
             """{"versionCode":68,"versionName":"0.8.5","apkUrl":"https://updates.example.com/app.apk","sha256":"${"a".repeat(64)}","notes":"修复"}""",
