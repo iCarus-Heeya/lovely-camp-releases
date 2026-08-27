@@ -156,7 +156,12 @@ class AndroidVideoPageFetcher(
             }
         }
 
-        if (preflight?.usableAddresses?.isNotEmpty() == true) {
+        // Keep the normal hostname URL stack when every system answer is usable. This is the
+        // browser-compatible path: Android owns DNS address racing plus TLS SNI/verification.
+        // Pin a transport address only when the system answer contained a rejected entry; that
+        // is the narrow case where reusing the filtered answer is needed to bypass a poisoned
+        // loopback/local route without changing the logical HTTPS origin.
+        if (preflight?.usableAddresses?.isNotEmpty() == true && preflight.rejectedAddressCount > 0) {
             val rejected = preflight.rejectedAddressCount
             requestDiagnostics.record(
                 method,
