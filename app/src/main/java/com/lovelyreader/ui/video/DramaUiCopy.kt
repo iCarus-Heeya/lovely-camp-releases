@@ -7,12 +7,23 @@ internal enum class DramaStatus {
     CastTargetUnavailable
 }
 
+/** Distinguishes a transport/source failure from a successful empty result. */
+enum class DramaRequestError {
+    Network,
+    Unavailable
+}
+
 /** App-owned drama status copy stays Chinese even when a provider returns English metadata. */
 internal fun dramaStatusCopy(status: DramaStatus): String = when (status) {
     DramaStatus.RootUnavailable -> "片源暂时连不上，请稍后再试"
     DramaStatus.Searching -> "正在查找剧集…"
     DramaStatus.NoSearchResults -> "没有找到匹配的剧集"
     DramaStatus.CastTargetUnavailable -> "当前片源暂不支持投屏，仍可在手机上观看"
+}
+
+internal fun dramaRequestErrorCopy(error: DramaRequestError): String = when (error) {
+    DramaRequestError.Network -> "片源网络暂时不可达，请重试"
+    DramaRequestError.Unavailable -> "片源暂时无法读取，请重试"
 }
 
 internal fun selectedEpisodeDownloadLabel(count: Int): String = "下载已选 ${count.coerceAtLeast(0)} 集"

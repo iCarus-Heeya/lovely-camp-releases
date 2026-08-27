@@ -20,7 +20,8 @@ class HttpTextClient(
     private val minimumIntervalMillis: Long = 1_200,
     private val connectTimeoutMillis: Int = 12_000,
     private val readTimeoutMillis: Int = 60_000,
-    private val connectionFactory: ((URL) -> HttpURLConnection)? = null
+    private val connectionFactory: ((URL) -> HttpURLConnection)? = null,
+    private val responseInspector: ((responseCode: Int, body: String) -> Unit)? = null
 ) {
     private var lastRequestAtMillis: Long = 0
     private val requestGate = Mutex()
@@ -116,6 +117,7 @@ class HttpTextClient(
                 output.toByteArray()
             }
             val text = decodeText(connection.contentType, bytes)
+            responseInspector?.invoke(responseCode, text)
             if (challengeDepth < 2) {
             followJsChallengeIfNeeded(url, text, safety, challengeDepth + 1, onProgress) ?: text
             } else {

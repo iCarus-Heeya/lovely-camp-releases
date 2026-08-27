@@ -17,7 +17,9 @@ import com.lovelyreader.video.mergeVideoTitleMetadata
 import com.lovelyreader.video.VideoEpisode
 import com.lovelyreader.video.VideoMediaLink
 import com.lovelyreader.video.VideoRecentViewing
+import com.lovelyreader.video.isTransientVideoNetworkFailure
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +47,18 @@ interface DramaLibrary {
     fun enqueueDownload(titleId: String, sourceId: String, episodeId: String, directUrl: String): VideoDownloadTask
     fun downloadQueue(): List<VideoDownloadTask>
 }
+
+/** Like runCatching, but never converts coroutine cancellation into a user-facing error. */
+private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T> = try {
+    Result.success(block())
+} catch (error: CancellationException) {
+    throw error
+} catch (error: Throwable) {
+    Result.failure(error)
+}
+
+private fun classifyDramaRequestError(error: Throwable): DramaRequestError =
+    if (isTransientVideoNetworkFailure(error)) DramaRequestError.Network else DramaRequestError.Unavailable
 
 class VideoLibraryDramaStore(
     private val repository: VideoLibraryRepository
@@ -90,13 +104,17 @@ data class DramaRootUiState(
 data class DramaSearchUiState(
     val isLoading: Boolean = false,
     val results: List<VideoTitle> = emptyList(),
-    val message: String = "输入剧名后开始找剧"
+    val message: String = "输入剧名后开始找剧",
+    val error: DramaRequestError? = null,
+    val canRetry: Boolean = false
 )
 
 data class DramaDetailUiState(
     val detail: VideoTitleDetail? = null,
     val isLoading: Boolean = false,
-    val message: String = "请选择一部剧查看播放源"
+    val message: String = "请选择一部剧查看播放源",
+    val error: DramaRequestError? = null,
+    val canRetry: Boolean = false
 )
 
 data class DramaPlaybackUiState(
@@ -157,6 +175,9 @@ class DramaViewModel(
     private var searchJob: Job? = null
     private var pendingResumeRequest = false
     private var pendingSearchQuery: String? = null
+    private var pendingTitle: VideoTitle? = null
+    private var pendingSourceId: String? = null
+    private var lastOpenedTitle: VideoTitle? = null
     private val scope: CoroutineScope
         get() = coroutineScope ?: viewModelScope
 
@@ -173,7 +194,7 @@ class DramaViewModel(
         }
         _rootStatus.value = _rootStatus.value.copy(isRefreshing = true, message = "正在更新片源地址…")
         scope.launch {
-            val resolution = runCatching { resolver.resolve() }.getOrElse {
+            val resolution = runCatchingCancellable { resolver.resolve() }.getOrElse {
                 VideoRootResolution(null, VideoRootResolutionStatus.UNAVAILABLE, "片源地址刷新失败。")
             }
             if (request == rootRequest) {
@@ -185,6 +206,14 @@ class DramaViewModel(
                 pendingSearchQuery?.let { query ->
                     pendingSearchQuery = null
                     search(query)
+                }
+                pendingTitle?.let { title ->
+                    pendingTitle = null
+                    openTitle(title)
+                }
+                pendingSourceId?.let { sourceId ->
+                    pendingSourceId = null
+                    _selectedTitle.value.detail?.sources?.firstOrNull { it.id == sourceId }?.let(::selectSource)
                 }
             }
         }
@@ -207,40 +236,94 @@ class DramaViewModel(
         }
         if (root == null || adapter == null) {
             _searchResults.value = DramaSearchUiState(
-                message = dramaHomeAvailabilityMessage(rootStatus.value) ?: "片源地址尚未就绪，请稍后再试。"
+                message = dramaHomeAvailabilityMessage(rootStatus.value) ?: "片源地址尚未就绪，请稍后再试。",
+                error = DramaRequestError.Unavailable,
+                canRetry = true
             )
             return
         }
         _searchResults.value = DramaSearchUiState(isLoading = true, message = dramaStatusCopy(DramaStatus.Searching))
         searchJob = scope.launch {
-            val results = runCatching { adapter.search(root, query.trim()) }.getOrElse { emptyList() }
+            val result = runCatchingCancellable { adapter.search(root, query.trim()) }
             if (request == searchRequest) {
-                _searchResults.value = DramaSearchUiState(
-                    results = results,
-                    message = if (results.isEmpty()) dramaStatusCopy(DramaStatus.NoSearchResults) else "找到 ${results.size} 部剧集"
+                _searchResults.value = result.fold(
+                    onSuccess = { results ->
+                        DramaSearchUiState(
+                            results = results,
+                            message = if (results.isEmpty()) dramaStatusCopy(DramaStatus.NoSearchResults) else "找到 ${results.size} 部剧集"
+                        )
+                    },
+                    onFailure = { error ->
+                        val requestError = classifyDramaRequestError(error)
+                        DramaSearchUiState(
+                            message = dramaRequestErrorCopy(requestError),
+                            error = requestError,
+                            canRetry = true
+                        )
+                    }
                 )
             }
         }
     }
 
+    /** Repeats the last search without treating the prior failure as an empty catalogue. */
+    fun retrySearch() {
+        val query = searchQuery.value.trim()
+        if (query.isBlank()) return
+        if (rootStatus.value.root == null) {
+            if (rootResolver == null) {
+                _searchResults.value = DramaSearchUiState(
+                    message = "片源地址解析服务暂不可用。",
+                    error = DramaRequestError.Unavailable,
+                    canRetry = true
+                )
+                return
+            }
+            pendingSearchQuery = query
+            _searchResults.value = DramaSearchUiState(isLoading = true, message = "正在连接片源后搜索…")
+            if (!rootStatus.value.isRefreshing) refreshRoot()
+        } else {
+            search(query)
+        }
+    }
+
     fun openTitle(title: VideoTitle) {
+        lastOpenedTitle = title
         val root = rootStatus.value.root
         val adapter = siteAdapter
         val request = ++detailRequest
+        pendingTitle = null
+        pendingSourceId = null
         _selectedSource.value = null
         _sourceEpisodes.value = emptyList()
         _selectedEpisodeIds.value = emptySet()
         closePlayback()
+        if (root == null && rootStatus.value.isRefreshing) {
+            pendingTitle = title
+            _selectedTitle.value = DramaDetailUiState(isLoading = true, message = "正在连接片源后加载详情…")
+            return
+        }
         if (root == null || adapter == null) {
-            _selectedTitle.value = DramaDetailUiState(message = "片源尚未就绪，暂时无法加载剧集详情")
+            _selectedTitle.value = DramaDetailUiState(
+                message = "片源尚未就绪，暂时无法加载剧集详情",
+                error = DramaRequestError.Unavailable,
+                canRetry = true
+            )
             return
         }
         _selectedTitle.value = DramaDetailUiState(isLoading = true, message = "正在加载播放源…")
         scope.launch {
-            val detail = runCatching { adapter.loadDetail(root, title.detailUrl) }.getOrNull()
+            val result = runCatchingCancellable { adapter.loadDetail(root, title.detailUrl) }
             if (request != detailRequest) return@launch
+            val detail = result.getOrNull()
             if (detail == null) {
-                _selectedTitle.value = DramaDetailUiState(message = "暂时无法取得这部剧的播放源")
+                val requestError = result.exceptionOrNull()?.let(::classifyDramaRequestError)
+                    ?: DramaRequestError.Unavailable
+                _selectedTitle.value = DramaDetailUiState(
+                    message = dramaRequestErrorCopy(requestError),
+                    error = requestError,
+                    canRetry = true
+                )
                 return@launch
             }
             val searchTitle = _searchResults.value.results.firstOrNull { candidate ->
@@ -260,31 +343,116 @@ class DramaViewModel(
         }
     }
 
+    /** Retries the last title request while keeping the user on the detail surface. */
+    fun retrySelectedTitle() {
+        val title = lastOpenedTitle ?: return
+        if (rootStatus.value.root != null) {
+            openTitle(title)
+            return
+        }
+        if (rootResolver == null) {
+            _selectedTitle.value = DramaDetailUiState(
+                message = "片源地址解析服务暂不可用。",
+                error = DramaRequestError.Unavailable,
+                canRetry = true
+            )
+            return
+        }
+        pendingTitle = title
+        pendingSourceId = null
+        _selectedTitle.value = DramaDetailUiState(isLoading = true, message = "正在连接片源后加载详情…")
+        if (!rootStatus.value.isRefreshing) refreshRoot()
+    }
+
     fun selectSource(source: VideoSource) {
         val detail = selectedTitle.value.detail ?: return
         if (source.titleId != detail.title.id || detail.sources.none { it.id == source.id }) return
         val root = rootStatus.value.root
         val adapter = siteAdapter
         val request = ++episodesRequest
+        pendingSourceId = null
         library.selectSource(detail.title.id, source.id)
         _selectedSource.value = source
         _sourceEpisodes.value = emptyList()
         _selectedEpisodeIds.value = emptySet()
         closePlayback()
-        if (root == null || adapter == null) {
-            _selectedTitle.value = _selectedTitle.value.copy(message = "片源尚未就绪，暂时无法加载选集")
+        if (root == null && rootStatus.value.isRefreshing) {
+            pendingSourceId = source.id
+            _selectedTitle.value = _selectedTitle.value.copy(
+                isLoading = true,
+                message = "正在连接片源后加载选集…",
+                error = null,
+                canRetry = false
+            )
             return
         }
-        _selectedTitle.value = _selectedTitle.value.copy(message = "正在加载 ${source.label} 的选集…")
+        if (root == null || adapter == null) {
+            _selectedTitle.value = _selectedTitle.value.copy(
+                isLoading = false,
+                message = "片源尚未就绪，暂时无法加载选集",
+                error = DramaRequestError.Unavailable,
+                canRetry = true
+            )
+            return
+        }
+        _selectedTitle.value = _selectedTitle.value.copy(
+            isLoading = true,
+            message = "正在加载 ${source.label} 的选集…",
+            error = null,
+            canRetry = false
+        )
         scope.launch {
-            val episodes = runCatching { adapter.loadEpisodes(root, source) }.getOrElse { emptyList() }
+            val result = runCatchingCancellable { adapter.loadEpisodes(root, source) }
             if (request == episodesRequest && _selectedSource.value?.id == source.id) {
-                _sourceEpisodes.value = episodes.filter { it.sourceId == source.id }.sortedBy { it.position }
-                _selectedTitle.value = _selectedTitle.value.copy(
-                    message = if (episodes.isEmpty()) "该播放源暂未提供选集" else "请选择一集或多集"
+                result.fold(
+                    onSuccess = { episodes ->
+                        val matchingEpisodes = episodes.filter { it.sourceId == source.id }.sortedBy { it.position }
+                        _sourceEpisodes.value = matchingEpisodes
+                        _selectedTitle.value = _selectedTitle.value.copy(
+                            isLoading = false,
+                            message = if (matchingEpisodes.isEmpty()) "该播放源暂未提供选集" else "请选择一集或多集",
+                            error = null,
+                            canRetry = false
+                        )
+                    },
+                    onFailure = { error ->
+                        val requestError = classifyDramaRequestError(error)
+                        _selectedTitle.value = _selectedTitle.value.copy(
+                            isLoading = false,
+                            message = dramaRequestErrorCopy(requestError),
+                            error = requestError,
+                            canRetry = true
+                        )
+                    }
                 )
             }
         }
+    }
+
+    /** Retries loading episodes for the currently selected source. */
+    fun retrySelectedSource() {
+        val source = selectedSource.value ?: return
+        if (rootStatus.value.root != null) {
+            selectSource(source)
+            return
+        }
+        if (rootResolver == null) {
+            _selectedTitle.value = _selectedTitle.value.copy(
+                isLoading = false,
+                message = "片源地址解析服务暂不可用。",
+                error = DramaRequestError.Unavailable,
+                canRetry = true
+            )
+            return
+        }
+        pendingSourceId = source.id
+        _selectedTitle.value = _selectedTitle.value.copy(
+            isLoading = true,
+            message = "正在连接片源后加载选集…",
+            error = null,
+            canRetry = false
+        )
+        if (!rootStatus.value.isRefreshing) refreshRoot()
     }
 
     fun toggleEpisode(episodeId: String) {
@@ -315,11 +483,18 @@ class DramaViewModel(
             message = "正在准备播放…"
         )
         scope.launch {
-            val media = runCatching { adapter.loadMedia(root, episode) }
-                .getOrNull()
-                ?.takeUnless(VideoMediaLink::isEncrypted)
+            val result = runCatchingCancellable { adapter.loadMedia(root, episode) }
             if (request != playbackRequest) return@launch
-            _playback.value = if (media == null) {
+            val media = result.getOrNull()?.takeUnless(VideoMediaLink::isEncrypted)
+            _playback.value = if (result.isFailure) {
+                val requestError = classifyDramaRequestError(result.exceptionOrNull() ?: IllegalStateException())
+                DramaPlaybackUiState(
+                    titleName = titleName,
+                    episode = episode,
+                    posterUrl = posterUrl,
+                    message = "${dramaRequestErrorCopy(requestError)}，请返回选集后重试或切换片源。"
+                )
+            } else if (media == null) {
                 library.recordSourceResult(selectedTitle.value.detail?.title?.id ?: return@launch, source.id, success = false)
                 DramaPlaybackUiState(
                     titleName = titleName,
@@ -358,11 +533,18 @@ class DramaViewModel(
         val request = ++detailRequest
         _playback.value = DramaPlaybackUiState(isLoading = true, message = "正在恢复上次观看…")
         scope.launch {
-            val detail = runCatching {
+            val detailResult = runCatchingCancellable {
                 adapter.loadDetail(root, rebindSavedTitleUrl(root, recent.titleDetailUrl))
-            }.getOrNull()
+            }
+            val detail = detailResult.getOrNull()
             if (request != detailRequest || detail == null) {
-                if (request == detailRequest) _playback.value = DramaPlaybackUiState(message = "暂时无法恢复上次观看，请重新选择片源。")
+                if (request == detailRequest) {
+                    val requestError = detailResult.exceptionOrNull()?.let(::classifyDramaRequestError)
+                        ?: DramaRequestError.Unavailable
+                    _playback.value = DramaPlaybackUiState(
+                        message = "${dramaRequestErrorCopy(requestError)}，请返回选集后重试。"
+                    )
+                }
                 return@launch
             }
             val sources = library.orderSources(detail.title.id, detail.sources)
@@ -374,7 +556,17 @@ class DramaViewModel(
             }
             library.selectSource(detail.title.id, source.id)
             _selectedSource.value = source
-            val episodes = runCatching { adapter.loadEpisodes(root, source) }.getOrDefault(emptyList())
+            val episodesResult = runCatchingCancellable { adapter.loadEpisodes(root, source) }
+            if (request != detailRequest) return@launch
+            if (episodesResult.isFailure) {
+                val requestError = episodesResult.exceptionOrNull()?.let(::classifyDramaRequestError)
+                    ?: DramaRequestError.Unavailable
+                _playback.value = DramaPlaybackUiState(
+                    message = "${dramaRequestErrorCopy(requestError)}，请返回选集后重试。"
+                )
+                return@launch
+            }
+            val episodes = episodesResult.getOrDefault(emptyList())
                 .filter { it.sourceId == source.id }.sortedBy { it.position }
             _sourceEpisodes.value = episodes
             val episode = episodes.firstOrNull { candidate -> matchesSavedEpisode(candidate, recent.episodeId) }

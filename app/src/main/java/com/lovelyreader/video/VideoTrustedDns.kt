@@ -5,8 +5,10 @@ import android.net.ConnectivityManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.lovelyreader.network.isUnsafeNetworkAddress
 import org.json.JSONObject
 import java.io.IOException
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -19,6 +21,33 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLSocketFactory
 
 enum class TrustedDnsFallbackReason { INVALID_SYSTEM_ANSWER }
+
+private const val MAX_ADDRESS_ATTEMPTS = 4
+private const val TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS = 8_000
+
+/** The fixed AliDNS bootstrap must stay HTTPS-only, bounded, and redirect-free. */
+internal fun configureVideoTrustedDnsBootstrapConnection(
+    connection: java.net.HttpURLConnection
+): java.net.HttpURLConnection = connection.apply {
+    connectTimeout = TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
+    readTimeout = TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
+    instanceFollowRedirects = false
+    setRequestProperty("Accept", "application/json")
+    setRequestProperty("User-Agent", "LovelyCamp/1.0 trusted-dns")
+}
+
+internal class TrustedDnsResolutionException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+internal class TrustedVideoTargetException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+internal fun trustedVideoFailureStage(error: Throwable): String = when {
+    generateSequence(error) { it.cause }.any { it is TrustedDnsResolutionException } -> "可信 DNS 查询阶段"
+    generateSequence(error) { it.cause }.any { it is TrustedVideoTargetException } -> "目标 HTTPS 阶段"
+    else -> "目标 HTTPS 阶段"
+}
+
+internal fun trustedVideoFailureType(error: Throwable): String =
+    generateSequence(error) { it.cause }.lastOrNull()?.javaClass?.simpleName ?: "未知异常"
 
 /** Official AliDNS recursive resolver IPv4 bootstrap addresses; only used to reach dns.alidns.com over TLS. */
 internal fun trustedDnsBootstrapAddresses(): List<String> = listOf("223.5.5.5", "223.6.6.6")
@@ -42,20 +71,81 @@ internal fun parseTrustedIpv4Address(raw: String): InetAddress? {
     return InetAddress.getByAddress(bytes.map(Int::toByte).toByteArray())
 }
 
-internal fun trustedDnsFallbackReason(host: String, addresses: List<InetAddress>): TrustedDnsFallbackReason? {
-    if (host.isBlank() || addresses.isEmpty()) return TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
-    return if (addresses.any(::isUnsafePublicAddress)) TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER else null
+/**
+ * The system resolver may return a mixture of unusable and public addresses. Browsers normally
+ * discard loopback/local answers and continue with the usable set, so the app must not trigger a
+ * trusted-DNS lookup merely because one address in the answer is bad. IPv4 is ordered first as a
+ * conservative choice for networks that advertise a broken IPv6 route. This is not a parallel
+ * Happy Eyeballs race; it is a bounded, deterministic fallback.
+ */
+data class TrustedDnsAddressSelection(
+    val usableAddresses: List<InetAddress>,
+    val rejectedAddressCount: Int,
+    val fallbackReason: TrustedDnsFallbackReason?
+) {
+    val shouldPreferSystemAddresses: Boolean
+        get() = usableAddresses.isNotEmpty() && rejectedAddressCount > 0
 }
 
-private fun isUnsafePublicAddress(address: InetAddress): Boolean =
-    address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-        address.isSiteLocalAddress || address.isMulticastAddress
+internal fun selectTrustedDnsAddresses(host: String, addresses: List<InetAddress>): TrustedDnsAddressSelection {
+    if (host.isBlank() || addresses.isEmpty()) {
+        return TrustedDnsAddressSelection(
+            usableAddresses = emptyList(),
+            rejectedAddressCount = addresses.size,
+            fallbackReason = TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
+        )
+    }
+    val distinctAddresses = addresses.distinctBy { it.hostAddress }
+    val usable = distinctAddresses
+        .filterNot(::isUnsafePublicAddress)
+        .sortedWith(compareBy<InetAddress> { if (it is Inet4Address) 0 else 1 })
+        .take(MAX_ADDRESS_ATTEMPTS)
+    return TrustedDnsAddressSelection(
+        usableAddresses = usable,
+        rejectedAddressCount = distinctAddresses.size - usable.size,
+        fallbackReason = if (usable.isEmpty()) TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER else null
+    )
+}
+
+internal fun trustedDnsFallbackReason(host: String, addresses: List<InetAddress>): TrustedDnsFallbackReason? {
+    return selectTrustedDnsAddresses(host, addresses).fallbackReason
+}
+
+private fun isUnsafePublicAddress(address: InetAddress): Boolean = isUnsafeNetworkAddress(address)
+
+internal fun requireTrustedVideoHttpsUrl(url: String): URL {
+    val parsed = URI(url)
+    require(parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()) {
+        "追剧请求必须使用 HTTPS"
+    }
+    require(parsed.userInfo == null) { "追剧请求不允许携带用户信息" }
+    require(parsed.port == -1 || parsed.port == 443) { "追剧请求端口不受支持" }
+    return URL(url)
+}
 
 /** Per-app fallback only. It cannot and does not change HarmonyOS/Android global DNS settings. */
 interface TrustedVideoDnsFallback {
     suspend fun preflight(url: String): TrustedDnsFallbackReason?
+
+    /**
+     * Returns the filtered system answer when the platform supplied one. The default keeps the
+     * original interface behavior for test doubles and non-Android implementations.
+     */
+    suspend fun preflightSelection(url: String): TrustedDnsAddressSelection =
+        TrustedDnsAddressSelection(emptyList(), 0, preflight(url))
+
     suspend fun get(url: String): String
     suspend fun postForm(url: String, fields: Map<String, String>): String
+
+    /** Uses already-resolved system addresses while preserving the original host for TLS. */
+    suspend fun getUsingAddresses(url: String, addresses: List<InetAddress>): String = get(url)
+
+    /** Uses already-resolved system addresses while preserving the original host for TLS. */
+    suspend fun postFormUsingAddresses(
+        url: String,
+        fields: Map<String, String>,
+        addresses: List<InetAddress>
+    ): String = postForm(url, fields)
 }
 
 internal object NoopTrustedVideoDnsFallback : TrustedVideoDnsFallback {
@@ -68,12 +158,18 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
     private val appContext = context.applicationContext
     private val addressCache = TrustedDnsAddressCache()
 
-    override suspend fun preflight(url: String): TrustedDnsFallbackReason? = withContext(Dispatchers.IO) {
-        val host = URI(url).host ?: return@withContext TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
+    override suspend fun preflight(url: String): TrustedDnsFallbackReason? = preflightSelection(url).fallbackReason
+
+    override suspend fun preflightSelection(url: String): TrustedDnsAddressSelection = withContext(Dispatchers.IO) {
+        val host = URI(url).host ?: return@withContext TrustedDnsAddressSelection(
+            usableAddresses = emptyList(),
+            rejectedAddressCount = 0,
+            fallbackReason = TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
+        )
         val network = appContext.getSystemService(ConnectivityManager::class.java).activeNetwork
         val addresses = runCatching { network?.getAllByName(host)?.toList() ?: InetAddress.getAllByName(host).toList() }
             .getOrDefault(emptyList())
-        trustedDnsFallbackReason(host, addresses)
+        selectTrustedDnsAddresses(host, addresses)
     }
 
     override suspend fun get(url: String): String = withTrustedClient(url) { it.get(url) }
@@ -81,28 +177,78 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
     override suspend fun postForm(url: String, fields: Map<String, String>): String =
         withTrustedClient(url) { it.postForm(url, fields) }
 
+    override suspend fun getUsingAddresses(url: String, addresses: List<InetAddress>): String =
+        withSystemAddressClient(url, addresses) { it.get(url) }
+
+    override suspend fun postFormUsingAddresses(
+        url: String,
+        fields: Map<String, String>,
+        addresses: List<InetAddress>
+    ): String = withSystemAddressClient(url, addresses) { it.postForm(url, fields) }
+
     private suspend fun <T> withTrustedClient(url: String, action: suspend (com.lovelyreader.source.HttpTextClient) -> T): T {
-        val host = URI(url).host ?: throw UnknownHostException("无效片源主机")
+        val host = requireTrustedVideoHttpsUrl(url).toURI().host ?: throw UnknownHostException("无效片源主机")
         val addresses = resolveWithAliDns(host)
-        if (addresses.isEmpty()) throw UnknownHostException("可信 DNS 未返回可用地址")
-        var lastError: Throwable? = null
-        addresses.forEach { preferredAddress ->
-            try {
-                val orderedAddresses = listOf(preferredAddress) + addresses.filterNot { it == preferredAddress }
-                val client = com.lovelyreader.source.HttpTextClient(
-                    minimumIntervalMillis = 500,
-                    connectTimeoutMillis = 20_000,
-                    readTimeoutMillis = 75_000,
-                    connectionFactory = TrustedAddressHttpsConnectionFactory(host, orderedAddresses)
-                )
-                return action(client)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (!isTransientVideoNetworkFailure(error)) throw error
-                lastError = error
-            }
+        if (addresses.isEmpty()) throw TrustedDnsResolutionException("可信 DNS 未返回可用地址")
+        return withAddressClient(
+            url = url,
+            addresses = addresses,
+            connectTimeoutMillis = TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS,
+            readTimeoutMillis = TRUSTED_TARGET_READ_TIMEOUT_MILLIS,
+            action = action
+        )
+    }
+
+    private suspend fun <T> withSystemAddressClient(
+        url: String,
+        addresses: List<InetAddress>,
+        action: suspend (com.lovelyreader.source.HttpTextClient) -> T
+    ): T {
+        val host = requireTrustedVideoHttpsUrl(url).toURI().host ?: throw UnknownHostException("无效片源主机")
+        val usableAddresses = selectTrustedDnsAddresses(host, addresses).usableAddresses
+        if (usableAddresses.isEmpty()) throw UnknownHostException("系统 DNS 未返回可用地址")
+        return withAddressClient(
+            url = url,
+            addresses = usableAddresses,
+            connectTimeoutMillis = SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS,
+            readTimeoutMillis = SYSTEM_TARGET_READ_TIMEOUT_MILLIS,
+            action = action
+        )
+    }
+
+    private suspend fun <T> withAddressClient(
+        url: String,
+        addresses: List<InetAddress>,
+        connectTimeoutMillis: Int,
+        readTimeoutMillis: Int,
+        action: suspend (com.lovelyreader.source.HttpTextClient) -> T
+    ): T {
+        val host = URI(url).host ?: throw UnknownHostException("无效片源主机")
+        val orderedAddresses = addresses
+            .distinctBy { it.hostAddress }
+            .sortedWith(compareBy<InetAddress> { if (it is Inet4Address) 0 else 1 })
+            .take(MAX_ADDRESS_ATTEMPTS)
+        val client = com.lovelyreader.source.HttpTextClient(
+            minimumIntervalMillis = 500,
+            connectTimeoutMillis = connectTimeoutMillis,
+            readTimeoutMillis = readTimeoutMillis,
+            connectionFactory = TrustedAddressHttpsConnectionFactory(host, orderedAddresses, connectTimeoutMillis),
+            responseInspector = ::inspectVideoHttpResponse
+        )
+        return try {
+            action(client)
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            if (!isTransientVideoNetworkFailure(error)) throw error
+            throw TrustedVideoTargetException("可信地址均不可达", error)
         }
-        throw lastError ?: IOException("可信 DNS 地址均不可达")
+    }
+
+    private companion object {
+        const val SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS = 4_000
+        const val SYSTEM_TARGET_READ_TIMEOUT_MILLIS = 30_000
+        const val TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS = 20_000
+        const val TRUSTED_TARGET_READ_TIMEOUT_MILLIS = 75_000
     }
 
     private suspend fun resolveWithAliDns(host: String): List<InetAddress> = withContext(Dispatchers.IO) {
@@ -114,11 +260,12 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
         trustedDnsBootstrapAddresses().map(InetAddress::getByName).forEach { bootstrapAddress ->
             var connection: HttpsURLConnection? = null
             try {
-                connection = (TrustedAddressHttpsConnectionFactory("dns.alidns.com", listOf(bootstrapAddress))(resolverUrl) as HttpsURLConnection).apply {
-                    connectTimeout = 8_000
-                    readTimeout = 8_000
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "LovelyCamp/1.0 trusted-dns")
+                connection = (TrustedAddressHttpsConnectionFactory(
+                    "dns.alidns.com",
+                    listOf(bootstrapAddress),
+                    TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
+                )(resolverUrl) as HttpsURLConnection).apply {
+                    configureVideoTrustedDnsBootstrapConnection(this)
                 }
                 responseReceived = true
                 if (connection.responseCode !in 200..299) return@forEach
@@ -134,7 +281,8 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
                 }.distinctBy { it.hostAddress }
                 addressCache.put(host, resolved)
                 return@withContext resolved
-            } catch (error: IOException) {
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 lastError = IOException(
                     "可信 DNS 引导地址 ${bootstrapAddress.hostAddress} 查询失败",
                     error
@@ -143,7 +291,10 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
                 connection?.disconnect()
             }
         }
-        if (responseReceived) emptyList() else throw (lastError ?: IOException("可信 DNS 服务不可达"))
+        if (responseReceived) {
+            throw TrustedDnsResolutionException("可信 DNS 未返回可用 A 记录")
+        }
+        throw TrustedDnsResolutionException("可信 DNS 服务不可达", lastError)
     }
 }
 
@@ -153,9 +304,11 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
  */
 private class TrustedAddressHttpsConnectionFactory(
     private val hostname: String,
-    private val addresses: List<InetAddress>
+    private val addresses: List<InetAddress>,
+    private val connectTimeoutMillis: Int
 ) : (URL) -> java.net.HttpURLConnection {
     override fun invoke(url: URL): java.net.HttpURLConnection {
+        requireTrustedVideoHttpsUrl(url.toString())
         val transportUrl = addresses.firstOrNull()?.let { trustedAddressUrl(url, it) } ?: url
         val connection = transportUrl.openConnection() as java.net.HttpURLConnection
         connection.setRequestProperty("Host", hostname)
@@ -163,7 +316,8 @@ private class TrustedAddressHttpsConnectionFactory(
             connection.sslSocketFactory = AddressBoundSniSocketFactory(
                 delegate = HttpsURLConnection.getDefaultSSLSocketFactory(),
                 hostname = hostname,
-                addresses = addresses
+                addresses = addresses,
+                connectTimeoutMillis = connectTimeoutMillis
             )
             val platformVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
             connection.hostnameVerifier = HostnameVerifier { _, session ->
@@ -177,7 +331,8 @@ private class TrustedAddressHttpsConnectionFactory(
 private class AddressBoundSniSocketFactory(
     private val delegate: SSLSocketFactory,
     private val hostname: String,
-    private val addresses: List<InetAddress>
+    private val addresses: List<InetAddress>,
+    private val connectTimeoutMillis: Int
 ) : SSLSocketFactory() {
     override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
     override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
@@ -192,14 +347,24 @@ private class AddressBoundSniSocketFactory(
     }
 
     private fun connectTrusted(port: Int): Socket {
-        var lastError: IOException? = null
-        addresses.forEach { address ->
+        var lastError: Throwable? = null
+        addresses.take(MAX_ADDRESS_ATTEMPTS).forEach { address ->
+            val plain = Socket()
+            var handedOff = false
             try {
-                val plain = Socket()
-                plain.connect(InetSocketAddress(address, port), 20_000)
-                return delegate.createSocket(plain, hostname, port, true)
-            } catch (error: IOException) {
-                lastError = error
+                plain.connect(InetSocketAddress(address, port), connectTimeoutMillis)
+                val secure = delegate.createSocket(plain, hostname, port, true)
+                handedOff = true
+                return secure
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (error is IOException) {
+                    lastError = error
+                } else {
+                    throw error
+                }
+            } finally {
+                if (!handedOff) runCatching { plain.close() }
             }
         }
         throw lastError ?: UnknownHostException(hostname)

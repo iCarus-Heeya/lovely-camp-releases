@@ -48,6 +48,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -167,6 +168,7 @@ fun DramaScreen(
                 page = DramaPage.Player
             },
             onSearch = viewModel::search,
+            onRetrySearch = viewModel::retrySearch,
             onOpenTitle = {
                 viewModel.openTitle(it)
                 page = DramaPage.Detail
@@ -184,6 +186,10 @@ fun DramaScreen(
             detailTitle = detail.detail?.title,
             detailMessage = detail.message,
             isLoading = detail.isLoading,
+            detailCanRetry = detail.canRetry,
+            onRetry = if (detail.canRetry) {
+                if (detail.detail == null) viewModel::retrySelectedTitle else viewModel::retrySelectedSource
+            } else null,
             sources = detail.detail?.sources.orEmpty(),
             selectedSource = source,
             episodes = episodes,
@@ -246,6 +252,7 @@ fun DramaHomeScreen(
     query: String,
     search: DramaSearchUiState,
     onSearch: (String) -> Unit,
+    onRetrySearch: () -> Unit = {},
     onOpenTitle: (VideoTitle) -> Unit,
     onOpenDownloads: () -> Unit,
     modifier: Modifier = Modifier
@@ -262,9 +269,13 @@ fun DramaHomeScreen(
                 label = { Text("剧名") },
                 singleLine = true
             )
-            Button(onClick = { onSearch(editableQuery) }, modifier = Modifier.padding(top = 8.dp)) { Text("搜索") }
+            Button(onClick = { onSearch(editableQuery) }, enabled = !search.isLoading, modifier = Modifier.padding(top = 8.dp)) { Text("搜索") }
         }
-        Text(search.message, style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (search.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(search.message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (search.canRetry) OutlinedButton(onClick = onRetrySearch, enabled = !search.isLoading) { Text("重试") }
+        }
         Button(onClick = onOpenDownloads) { Text("下载列表") }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(search.results, key = { it.id }) { title ->
@@ -288,6 +299,7 @@ internal fun DramaHomeStyledScreen(
     recentViewing: com.lovelyreader.video.VideoRecentViewing?,
     onResumeRecent: () -> Unit,
     onSearch: (String) -> Unit,
+    onRetrySearch: () -> Unit = {},
     onOpenTitle: (VideoTitle) -> Unit,
     onOpenDownloads: () -> Unit,
     onShowDiagnostics: (() -> Unit)?,
@@ -353,6 +365,7 @@ internal fun DramaHomeStyledScreen(
                     )
                     Button(
                         onClick = { onSearch(editableQuery) },
+                        enabled = !search.isLoading,
                         modifier = Modifier.height(32.dp),
                         shape = MaterialTheme.shapes.large,
                         colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White),
@@ -410,9 +423,33 @@ internal fun DramaHomeStyledScreen(
         dramaHomeAvailabilityMessage(rootStatus)?.let { message ->
             item { SoftPanel { Text(message, style = MaterialTheme.typography.bodyMedium, color = colors.softGray) } }
         }
-        if (search.message.isNotBlank()) item { Text(search.message, style = MaterialTheme.typography.bodySmall, color = colors.softGray) }
-        if (search.results.isEmpty() && !search.isLoading) item {
+        if (search.message.isNotBlank()) item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (search.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.roseBeige)
+                Text(search.message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                if (search.canRetry) {
+                    OutlinedButton(
+                        onClick = onRetrySearch,
+                        enabled = !search.isLoading,
+                        shape = MaterialTheme.shapes.large,
+                        border = BorderStroke(1.dp, colors.lineColor),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
+                    ) { Text("重试", color = colors.roseBeige) }
+                }
+            }
+        }
+        if (search.results.isEmpty() && !search.isLoading && search.error == null) item {
             SoftPanel { Text("还没有结果", style = MaterialTheme.typography.titleMedium, color = colors.cocoa); Text("输入剧名试试看，喜欢的剧会在这里出现。", color = colors.softGray, style = MaterialTheme.typography.bodySmall) }
+        }
+        if (search.results.isEmpty() && !search.isLoading && search.error != null) item {
+            SoftPanel {
+                Text("暂时没有显示结果", style = MaterialTheme.typography.titleMedium, color = colors.cocoa)
+                Text("这是片源连接问题，不代表没有这部剧。点击“重试”再次连接。", color = colors.softGray, style = MaterialTheme.typography.bodySmall)
+            }
         }
         items(search.results, key = { it.id }) { title -> DramaTitleCard(title, onClick = { onOpenTitle(title) }) }
     }
@@ -519,6 +556,8 @@ fun DramaDetailScreen(
     detailTitle: VideoTitle?,
     detailMessage: String,
     isLoading: Boolean,
+    detailCanRetry: Boolean = false,
+    onRetry: (() -> Unit)? = null,
     sources: List<VideoSource>,
     selectedSource: VideoSource?,
     episodes: List<VideoEpisode>,
@@ -533,7 +572,11 @@ fun DramaDetailScreen(
     Column(modifier = modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedButton(onClick = onBack) { Text("返回") }
         Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall)
-        Text(if (isLoading) "加载中…" else detailMessage, style = MaterialTheme.typography.bodySmall)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(if (isLoading) "加载中…" else detailMessage, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (detailCanRetry && onRetry != null) OutlinedButton(onClick = onRetry, enabled = !isLoading) { Text("重试") }
+        }
         when (sourceSelectorLayoutFor(sources.size)) {
             SourceSelectorLayout.STATIC -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 sources.forEach { source ->
@@ -572,7 +615,7 @@ fun DramaDetailScreen(
 
 @Composable
 private fun DramaDetailStyledScreen(
-    detailTitle: VideoTitle?, detailMessage: String, isLoading: Boolean, sources: List<VideoSource>, selectedSource: VideoSource?, episodes: List<VideoEpisode>, selectedEpisodeIds: Set<String>, onBack: () -> Unit, onSelectSource: (VideoSource) -> Unit, onToggleEpisode: (String) -> Unit, onPlayEpisode: (VideoEpisode) -> Unit, onEnqueueSelected: () -> Unit, modifier: Modifier = Modifier
+    detailTitle: VideoTitle?, detailMessage: String, isLoading: Boolean, detailCanRetry: Boolean = false, onRetry: (() -> Unit)? = null, sources: List<VideoSource>, selectedSource: VideoSource?, episodes: List<VideoEpisode>, selectedEpisodeIds: Set<String>, onBack: () -> Unit, onSelectSource: (VideoSource) -> Unit, onToggleEpisode: (String) -> Unit, onPlayEpisode: (VideoEpisode) -> Unit, onEnqueueSelected: () -> Unit, modifier: Modifier = Modifier
 ) {
     val colors = appColors()
     InkWashBackground(modifier.fillMaxSize()) {
@@ -593,6 +636,16 @@ private fun DramaDetailStyledScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(detailTitle?.name ?: "剧集详情", style = MaterialTheme.typography.headlineSmall, color = colors.cocoa)
                         Text(if (isLoading) "正在准备选集…" else detailMessage, style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                    }
+                }
+            }
+        }
+        if (detailCanRetry && onRetry != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SoftPanel {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(detailMessage, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                        OutlinedButton(onClick = onRetry, enabled = !isLoading, shape = MaterialTheme.shapes.large) { Text("重试") }
                     }
                 }
             }
@@ -630,6 +683,7 @@ private fun DramaDetailStyledScreen(
 @Composable
 internal fun DramaDetailCompactScreen(
     detailTitle: VideoTitle?, detailMessage: String, isLoading: Boolean,
+    detailCanRetry: Boolean = false, onRetry: (() -> Unit)? = null,
     sources: List<VideoSource>, selectedSource: VideoSource?, episodes: List<VideoEpisode>,
     selectedEpisodeIds: Set<String>, onBack: () -> Unit, onSelectSource: (VideoSource) -> Unit,
     onToggleEpisode: (String) -> Unit, onPlayEpisode: (VideoEpisode) -> Unit,
@@ -678,6 +732,16 @@ internal fun DramaDetailCompactScreen(
                 detailMessage = detailMessage,
                 isLoading = isLoading
             )
+        }
+        if (detailCanRetry && onRetry != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SoftPanel {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(detailMessage, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = colors.softGray)
+                        OutlinedButton(onClick = onRetry, enabled = !isLoading, shape = MaterialTheme.shapes.large) { Text("重试") }
+                    }
+                }
+            }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1476,7 +1540,7 @@ private class SitePlayerWebViewClient(
     override fun onLoadResource(view: WebView, url: String) {
         super.onLoadResource(view, url)
         com.lovelyreader.video.runtimeMediaFromLoadedUrl(url)?.let { media ->
-            Log.i("LovelyCast", "runtimeMediaCandidate=${media.playbackUrl}")
+            Log.i("LovelyCast", "runtimeMediaCandidate=${com.lovelyreader.video.redactVideoUrl(media.playbackUrl)}")
             onMediaDiscovered(media)
         }
         if (isProviderFrameRequest(url, episodeUrl)) {
