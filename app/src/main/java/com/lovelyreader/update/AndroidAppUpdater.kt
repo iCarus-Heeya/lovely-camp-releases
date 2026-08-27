@@ -27,6 +27,45 @@ object GitHubReleaseConfiguration {
     const val RELEASE_HISTORY_URL = "https://api.github.com/repos/iCarus-Heeya/lovely-camp-releases/releases"
 }
 
+private const val UPDATE_TRUSTED_DNS_BOOTSTRAP_TIMEOUT_MILLIS = 8_000
+
+/**
+ * Applies the updater's transport boundary to every connection, regardless of whether the
+ * address came from the platform resolver or the trusted-DNS fallback.
+ */
+internal fun configureUpdateHttpConnection(connection: HttpURLConnection): HttpURLConnection =
+    connection.apply {
+        connectTimeout = 12_000
+        readTimeout = 60_000
+        instanceFollowRedirects = false
+        setRequestProperty("Accept", "application/vnd.github+json")
+        setRequestProperty("User-Agent", "LovelyCamp-Android-Updater")
+    }
+
+/**
+ * Applies the smaller, bounded transport policy used to reach the fixed AliDNS bootstrap IPs.
+ * Bootstrap is still an HTTPS request and must never follow a redirect supplied by the network.
+ */
+internal fun configureUpdateTrustedDnsBootstrapConnection(connection: HttpURLConnection): HttpURLConnection =
+    connection.apply {
+        connectTimeout = UPDATE_TRUSTED_DNS_BOOTSTRAP_TIMEOUT_MILLIS
+        readTimeout = UPDATE_TRUSTED_DNS_BOOTSTRAP_TIMEOUT_MILLIS
+        instanceFollowRedirects = false
+        setRequestProperty("Accept", "application/json")
+        setRequestProperty("User-Agent", "LovelyCamp/1.0 trusted-dns")
+    }
+
+/** A fallback response is parsed only after the same interception/status guard as the first path. */
+internal fun validateTrustedUpdateResponse(responseCode: Int, body: String): String {
+    if (shouldRetryTrustedUpdateResponse(responseCode, body)) {
+        throw IOException("可信更新服务返回疑似网络拦截页")
+    }
+    if (responseCode !in 200..299) {
+        throw IOException("可信更新服务响应异常：$responseCode")
+    }
+    return body
+}
+
 sealed interface UpdateCheckResult {
     /** Kept for binary-safe UI compatibility; GitHub releases are always configured. */
     data object FeedNotConfigured : UpdateCheckResult
@@ -96,6 +135,8 @@ class AndroidAppUpdater(private val context: Context) {
                 directory = context.cacheDir,
                 olderThanMillis = 7L * 24L * 60L * 60L * 1_000L
             )
+            validateUpdateManifest(manifest)
+            validateGitHubAssetHost(manifest)
             val target = File(context.cacheDir, "update-${manifest.versionCode}.apk")
             val partial = File(target.parentFile, "${target.name}.part")
             if (target.isFile && sha256(target).equals(manifest.sha256, ignoreCase = true)) {
@@ -174,15 +215,12 @@ class AndroidAppUpdater(private val context: Context) {
             val body = readResponseBody(connection, responseCode)
             if (shouldRetryTrustedUpdateResponse(responseCode, body)) {
                 val fallbackConnection = trustedDnsFallback.open(URL(address))
-                    ?.let(::configureRawHttps)
                 if (fallbackConnection != null) {
                     try {
                         connectCandidate(fallbackConnection) { }
                         val fallbackResponseCode = fallbackConnection.responseCode
-                        if (fallbackResponseCode !in 200..299) {
-                            throw IOException("可信更新服务响应异常：$fallbackResponseCode")
-                        }
-                        return readResponseBody(fallbackConnection, fallbackResponseCode)
+                        val fallbackBody = readResponseBody(fallbackConnection, fallbackResponseCode)
+                        return validateTrustedUpdateResponse(fallbackResponseCode, fallbackBody)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Throwable) {
@@ -237,8 +275,7 @@ class AndroidAppUpdater(private val context: Context) {
                 in 300..399 -> {
                     val location = connection.getHeaderField("Location") ?: error("下载跳转地址缺失")
                     connection.disconnect()
-                    val next = URL(URL(current), location)
-                    require(isAllowedUpdateAssetHost(next.host)) { "下载跳转到未受信任的主机" }
+                    val next = requireAllowedUpdateAssetUrl(URL(URL(current), location))
                     current = next.toString()
                 }
                 else -> error("安装包下载失败")
@@ -252,42 +289,35 @@ class AndroidAppUpdater(private val context: Context) {
         configure: (HttpURLConnection) -> Unit = {}
     ): HttpURLConnection {
         val url = URL(address)
-        val preferTrusted = trustedDnsFallback.shouldPreferFallback(url)
-        var directError: Throwable? = null
+        require(isTrustedUpdateHost(url.host)) { "更新地址不是受信任的 GitHub 主机" }
+        val selection = trustedDnsFallback.preflightSelection(url)
+        var lastError: Throwable? = null
 
-        if (!preferTrusted) {
+        if (selection.usableAddresses.isNotEmpty()) {
             try {
-                return connectCandidate(openRawHttps(address), configure)
+                trustedDnsFallback.openUsingAddresses(url, selection.usableAddresses)?.let {
+                    return connectCandidate(it, configure)
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 if (!isTransientNetworkFailure(error)) throw error
-                directError = error
+                lastError = error
             }
         }
 
         val trusted = trustedDnsFallback.open(url)
         if (trusted != null) {
             try {
-                return connectCandidate(configureRawHttps(trusted), configure)
+                return connectCandidate(trusted, configure)
             } catch (error: Throwable) {
                 trusted.disconnect()
                 if (error is CancellationException) throw error
                 if (!isTransientNetworkFailure(error)) throw error
-                directError = directError ?: error
+                lastError = lastError ?: error
             }
         }
 
-        if (preferTrusted) {
-            try {
-                return connectCandidate(openRawHttps(address), configure)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (!isTransientNetworkFailure(error)) throw error
-                directError = directError ?: error
-            }
-        }
-
-        throw directError ?: IOException("更新连接失败")
+        throw lastError ?: IOException("更新连接失败")
     }
 
     private fun connectCandidate(
@@ -295,6 +325,10 @@ class AndroidAppUpdater(private val context: Context) {
         configure: (HttpURLConnection) -> Unit
     ): HttpURLConnection = connection.apply {
         try {
+            // Apply the same safety boundary to system-address and trusted-DNS transports.
+            // Keeping this here prevents a new connection path from accidentally inheriting
+            // HttpURLConnection's redirect and timeout defaults.
+            configureUpdateHttpConnection(this)
             configure(this)
             connect()
             responseCode
@@ -302,20 +336,6 @@ class AndroidAppUpdater(private val context: Context) {
             disconnect()
             throw error
         }
-    }
-
-    private fun openRawHttps(address: String): HttpURLConnection {
-        val url = URL(address)
-        require(url.protocol.equals("https", ignoreCase = true) && !url.host.isNullOrBlank()) { "更新地址必须是 HTTPS" }
-        return configureRawHttps(url.openConnection() as HttpURLConnection)
-    }
-
-    private fun configureRawHttps(connection: HttpURLConnection): HttpURLConnection = connection.apply {
-        connectTimeout = 12_000
-        readTimeout = 60_000
-        instanceFollowRedirects = false
-        setRequestProperty("Accept", "application/vnd.github+json")
-        setRequestProperty("User-Agent", "LovelyCamp-Android-Updater")
     }
 
     private fun sha256(file: File): String = file.inputStream().use { input ->

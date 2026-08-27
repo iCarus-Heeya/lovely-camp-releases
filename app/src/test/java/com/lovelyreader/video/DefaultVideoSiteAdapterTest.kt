@@ -1,5 +1,6 @@
 package com.lovelyreader.video
 
+import java.io.IOException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -301,6 +302,50 @@ class DefaultVideoSiteAdapterTest {
     }
 
     @Test
+    fun `transport failures propagate from search detail episodes and media instead of becoming empty data`() = runTest {
+        val failure = IOException("home Wi-Fi unavailable")
+        val searchFetcher = FakePageFetcher(
+            responses = mapOf(
+                root.url to "<form action=\"/find\" method=\"post\"><input name=\"q\"></form>"
+            ),
+            formFailure = failure
+        )
+        assertNetworkFailure {
+            DefaultVideoSiteAdapter(searchFetcher).search(root, "南部档案")
+        }
+
+        val detailUrl = "${root.url}/title/one"
+        assertNetworkFailure {
+            DefaultVideoSiteAdapter(FakePageFetcher(getFailure = failure))
+                .loadDetail(root, detailUrl)
+        }
+
+        val source = VideoSource(
+            id = "source-one",
+            titleId = detailUrl,
+            label = "线路一",
+            url = detailUrl
+        )
+        assertNetworkFailure {
+            DefaultVideoSiteAdapter(FakePageFetcher(getFailure = failure))
+                .loadEpisodes(root, source)
+        }
+
+        val episode = VideoEpisode(
+            id = "episode-one",
+            sourceId = source.id,
+            label = "第1集",
+            url = "${root.url}/play/one",
+            position = 0,
+            titleId = source.titleId
+        )
+        assertNetworkFailure {
+            DefaultVideoSiteAdapter(FakePageFetcher(getFailure = failure))
+                .loadMedia(root, episode)
+        }
+    }
+
+    @Test
     fun `direct MP4 requires HTTPS and mp4 path`() {
         val adapter = DefaultVideoSiteAdapter(FakePageFetcher())
 
@@ -315,21 +360,35 @@ class DefaultVideoSiteAdapterTest {
 
     private class FakePageFetcher(
         private val responses: Map<String, String> = emptyMap(),
-        private val formResponses: Map<FormRequest, String> = emptyMap()
+        private val formResponses: Map<FormRequest, String> = emptyMap(),
+        private val getFailure: Throwable? = null,
+        private val formFailure: Throwable? = null
     ) : VideoPageFetcher {
         val requestedUrls = mutableListOf<String>()
         val formRequests = mutableListOf<FormRequest>()
 
         override suspend fun get(url: String): String {
             requestedUrls += url
+            getFailure?.let { throw it }
             return responses[url] ?: error("No response for $url")
         }
 
         override suspend fun postForm(url: String, fields: Map<String, String>): String {
             val request = FormRequest(url, fields)
             formRequests += request
+            formFailure?.let { throw it }
             return formResponses[request] ?: error("No form response for $request")
         }
+    }
+
+    private suspend fun assertNetworkFailure(block: suspend () -> Unit) {
+        var thrown: IOException? = null
+        try {
+            block()
+        } catch (error: IOException) {
+            thrown = error
+        }
+        assertEquals("home Wi-Fi unavailable", thrown?.message)
     }
 
     private data class FormRequest(val url: String, val fields: Map<String, String>)

@@ -43,7 +43,7 @@ class UpdateTrustedDnsPolicyTest {
     @Test
     fun `unsafe system answers trigger fallback while normal public answers do not`() {
         assertEquals(
-            UpdateTrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER,
+            null,
             updateTrustedDnsFallbackReason(
                 "api.github.com",
                 listOf(InetAddress.getByName("::1"), InetAddress.getByName("20.205.243.168"))
@@ -56,6 +56,24 @@ class UpdateTrustedDnsPolicyTest {
                 listOf(InetAddress.getByName("20.205.243.168"))
             )
         )
+    }
+
+    @Test
+    fun `mixed update answers retain the public address and reject special use ranges`() {
+        val selection = selectUpdateTrustedDnsAddresses(
+            "api.github.com",
+            listOf(
+                InetAddress.getByName("::1"),
+                InetAddress.getByName("fc00::1"),
+                InetAddress.getByName("2001:db8::1"),
+                InetAddress.getByName("20.205.243.168")
+            )
+        )
+
+        assertEquals(listOf("20.205.243.168"), selection.usableAddresses.map { it.hostAddress })
+        assertEquals(3, selection.rejectedAddressCount)
+        assertEquals(null, selection.fallbackReason)
+        assertTrue(selection.shouldUseSystemAddresses)
     }
 
     @Test
@@ -77,11 +95,44 @@ class UpdateTrustedDnsPolicyTest {
     }
 
     @Test
+    fun `malformed trusted DNS JSON can be skipped before a later valid answer`() {
+        val malformed = runCatching { parseUpdateTrustedDnsAnswer("<html>blocked</html>") }
+        val valid = parseUpdateTrustedDnsAnswer(
+            """{"Answer":[{"type":1,"data":"185.199.111.133"}]}"""
+        )
+
+        assertTrue(malformed.isFailure)
+        assertEquals(listOf("185.199.111.133"), valid.map { it.hostAddress })
+    }
+
+    @Test
     fun `special use IPv4 ranges are rejected as trusted answers`() {
         assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("100.64.0.1")))
         assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("192.0.2.1")))
         assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("198.51.100.2")))
         assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("203.0.113.5")))
         assertFalse(isUnsafeUpdateAddress(InetAddress.getByName("20.205.243.168")))
+    }
+
+    @Test
+    fun `special use IPv6 ranges are rejected as trusted answers`() {
+        assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("fc00::1")))
+        assertTrue(isUnsafeUpdateAddress(InetAddress.getByName("2001:db8::1")))
+        assertFalse(isUnsafeUpdateAddress(InetAddress.getByName("2001:4860:4860::8888")))
+    }
+
+    @Test
+    fun `trusted update transport rejects HTTP before opening a socket`() {
+        var failed = false
+        try {
+            TrustedUpdateAddressHttpsConnectionFactory(
+                hostname = "github.com",
+                addresses = listOf(InetAddress.getByName("20.205.243.168")),
+                connectTimeoutMillis = 1_000
+            )(URL("http://github.com/app.apk"))
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
     }
 }

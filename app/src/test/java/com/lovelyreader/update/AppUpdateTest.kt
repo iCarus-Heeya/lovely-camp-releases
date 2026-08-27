@@ -2,6 +2,7 @@ package com.lovelyreader.update
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import java.net.URL
 import org.junit.Test
 
 class AppUpdateTest {
@@ -159,5 +160,44 @@ class AppUpdateTest {
             "更新源暂时不可达，尚未收到安装包数据，请稍后重试",
             formatUpdateFailureMessage(java.io.IOException("timeout"))
         )
+    }
+
+    @Test
+    fun `download manifest is revalidated against the GitHub asset boundary`() {
+        val manifest = UpdateManifest(
+            versionCode = 90,
+            versionName = "0.9.0",
+            apkUrl = "https://downloads.attacker.example/app.apk",
+            sha256 = "a".repeat(64),
+            notes = "",
+            mandatory = false
+        )
+
+        var failed = false
+        try {
+            validateGitHubAssetHost(manifest)
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
+    fun `asset redirect policy rejects non HTTPS or non default ports`() {
+        var failed = false
+        try {
+            requireAllowedUpdateAssetUrl(URL("http://github.com/app.apk"))
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
+
+        failed = false
+        try {
+            requireAllowedUpdateAssetUrl(URL("https://github.com:8443/app.apk"))
+        } catch (_: IllegalArgumentException) {
+            failed = true
+        }
+        assertTrue(failed)
     }
 }

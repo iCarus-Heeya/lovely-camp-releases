@@ -2,9 +2,11 @@ package com.lovelyreader.update
 
 import android.content.Context
 import android.net.ConnectivityManager
+import com.lovelyreader.network.isUnsafeNetworkAddress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.InetAddress
@@ -35,6 +37,7 @@ internal enum class UpdateTrustedDnsFallbackReason {
 
 private const val UPDATE_SOCKET_CONNECT_TIMEOUT_MILLIS = 12_000
 private const val TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS = 8_000
+private const val MAX_UPDATE_ADDRESS_ATTEMPTS = 4
 
 internal fun isTrustedUpdateHost(host: String): Boolean =
     host.trim().trimEnd('.').lowercase() in TRUSTED_UPDATE_HOSTS
@@ -74,39 +77,52 @@ internal fun parseUpdateTrustedIpv4Address(raw: String): InetAddress? {
     return InetAddress.getByAddress(bytes.map(Int::toByte).toByteArray())
 }
 
+/** Parses an AliDNS JSON response without ever passing a hostname back to system DNS. */
+internal fun parseUpdateTrustedDnsAnswer(body: String): List<InetAddress> {
+    val answer = JSONObject(body).optJSONArray("Answer") ?: return emptyList()
+    return buildList {
+        for (index in 0 until answer.length()) {
+            val item = answer.optJSONObject(index) ?: continue
+            if (item.optInt("type") != 1) continue
+            val address = parseUpdateTrustedIpv4Address(item.optString("data")) ?: continue
+            if (!isUnsafeUpdateAddress(address)) add(address)
+        }
+    }.distinctBy { it.hostAddress }
+}
+
 internal fun updateTrustedDnsFallbackReason(
     host: String,
     addresses: List<InetAddress>
 ): UpdateTrustedDnsFallbackReason? {
-    if (!isTrustedUpdateHost(host) || addresses.isEmpty()) {
-        return UpdateTrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
-    }
-    return if (addresses.any(::isUnsafeUpdateAddress)) {
-        UpdateTrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
-    } else {
-        null
-    }
+    return selectUpdateTrustedDnsAddresses(host, addresses).fallbackReason
 }
 
-internal fun isUnsafeUpdateAddress(address: InetAddress): Boolean {
-    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-        address.isSiteLocalAddress || address.isMulticastAddress
-    ) return true
-    val bytes = address.address
-    if (bytes.size != 4) return false
-    val first = bytes[0].toInt() and 0xff
-    val second = bytes[1].toInt() and 0xff
-    val third = bytes[2].toInt() and 0xff
-    return first == 0 ||
-        (first == 100 && second in 64..127) ||
-        (first == 192 && second == 0 && third == 0) ||
-        (first == 192 && second == 0 && third == 2) ||
-        (first == 192 && second == 88 && third == 99) ||
-        (first == 198 && second == 18) ||
-        (first == 198 && second == 19) ||
-        (first == 198 && second == 51) ||
-        (first == 203 && second == 0 && third == 113) ||
-        first >= 240
+internal fun isUnsafeUpdateAddress(address: InetAddress): Boolean = isUnsafeNetworkAddress(address)
+
+internal data class UpdateTrustedDnsAddressSelection(
+    val usableAddresses: List<InetAddress>,
+    val rejectedAddressCount: Int,
+    val fallbackReason: UpdateTrustedDnsFallbackReason?
+) {
+    val shouldUseSystemAddresses: Boolean
+        get() = usableAddresses.isNotEmpty()
+}
+
+internal fun selectUpdateTrustedDnsAddresses(
+    host: String,
+    addresses: List<InetAddress>
+): UpdateTrustedDnsAddressSelection {
+    if (!isTrustedUpdateHost(host)) return UpdateTrustedDnsAddressSelection(emptyList(), 0, null)
+    if (addresses.isEmpty()) {
+        return UpdateTrustedDnsAddressSelection(emptyList(), 0, UpdateTrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER)
+    }
+    val distinct = addresses.distinctBy { it.hostAddress }
+    val usable = distinct.filterNot(::isUnsafeUpdateAddress).take(MAX_UPDATE_ADDRESS_ATTEMPTS)
+    return UpdateTrustedDnsAddressSelection(
+        usableAddresses = usable,
+        rejectedAddressCount = distinct.size - usable.size,
+        fallbackReason = if (usable.isEmpty()) UpdateTrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER else null
+    )
 }
 
 /**
@@ -117,16 +133,32 @@ internal class AndroidTrustedUpdateDnsFallback(context: Context) {
     private val appContext = context.applicationContext
     private val addressCache = UpdateTrustedDnsAddressCache()
 
-    suspend fun shouldPreferFallback(url: URL): Boolean = withContext(Dispatchers.IO) {
+    suspend fun preflightSelection(url: URL): UpdateTrustedDnsAddressSelection = withContext(Dispatchers.IO) {
         val host = url.host.trimEnd('.').lowercase()
-        if (!isTrustedUpdateHost(host)) return@withContext false
+        if (!isTrustedUpdateHost(host)) return@withContext UpdateTrustedDnsAddressSelection(emptyList(), 0, null)
         val manager = appContext.getSystemService(ConnectivityManager::class.java)
         val network = manager?.activeNetwork
         val addresses = runCatching {
             network?.getAllByName(host)?.toList() ?: InetAddress.getAllByName(host).toList()
         }.getOrDefault(emptyList())
-        updateTrustedDnsFallbackReason(host, addresses) != null
+        selectUpdateTrustedDnsAddresses(host, addresses)
     }
+
+    suspend fun shouldPreferFallback(url: URL): Boolean = preflightSelection(url).fallbackReason != null
+
+    suspend fun openUsingAddresses(url: URL, addresses: List<InetAddress>): java.net.HttpURLConnection? =
+        withContext(Dispatchers.IO) {
+            require(url.protocol.equals("https", ignoreCase = true)) { "可信更新连接必须使用 HTTPS" }
+            val host = url.host.trimEnd('.').lowercase()
+            if (!isTrustedUpdateHost(host)) return@withContext null
+            val usable = selectUpdateTrustedDnsAddresses(host, addresses).usableAddresses
+            if (usable.isEmpty()) return@withContext null
+            TrustedUpdateAddressHttpsConnectionFactory(
+                hostname = host,
+                addresses = usable,
+                connectTimeoutMillis = UPDATE_SOCKET_CONNECT_TIMEOUT_MILLIS
+            )(url)
+        }
 
     suspend fun open(url: URL): java.net.HttpURLConnection? = withContext(Dispatchers.IO) {
         require(url.protocol.equals("https", ignoreCase = true)) { "可信更新连接必须使用 HTTPS" }
@@ -142,7 +174,7 @@ internal class AndroidTrustedUpdateDnsFallback(context: Context) {
         if (addresses.isEmpty()) return@withContext null
         TrustedUpdateAddressHttpsConnectionFactory(
             hostname = host,
-            addresses = addresses,
+            addresses = addresses.take(MAX_UPDATE_ADDRESS_ATTEMPTS),
             connectTimeoutMillis = UPDATE_SOCKET_CONNECT_TIMEOUT_MILLIS
         )(url)
     }
@@ -161,23 +193,22 @@ internal class AndroidTrustedUpdateDnsFallback(context: Context) {
                     addresses = listOf(bootstrapAddress),
                     connectTimeoutMillis = TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
                 )(resolverUrl) as HttpsURLConnection).apply {
-                    connectTimeout = 8_000
-                    readTimeout = 8_000
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "LovelyCamp/1.0 trusted-dns")
+                    configureUpdateTrustedDnsBootstrapConnection(this)
                 }
                 responseReceived = true
                 if (connection.responseCode !in 200..299) return@forEach
-                val answer = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                    .optJSONArray("Answer") ?: return@forEach
-                val resolved = buildList {
-                    for (index in 0 until answer.length()) {
-                        val item = answer.optJSONObject(index) ?: continue
-                        if (item.optInt("type") != 1) continue
-                        val address = parseUpdateTrustedIpv4Address(item.optString("data")) ?: continue
-                        if (!isUnsafeUpdateAddress(address)) add(address)
-                    }
-                }.distinctBy { it.hostAddress }
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val resolved = try {
+                    parseUpdateTrustedDnsAnswer(body)
+                } catch (error: JSONException) {
+                    // A captive portal or gateway can return HTTP 200 with non-JSON content.
+                    // Treat that bootstrap as failed and continue with the second fixed address.
+                    lastError = IOException(
+                        "可信 DNS 引导地址 ${bootstrapAddress.hostAddress} 返回畸形响应",
+                        error
+                    )
+                    return@forEach
+                }
                 if (resolved.isNotEmpty()) {
                     addressCache.put(host, resolved)
                     return@withContext resolved
@@ -233,6 +264,8 @@ internal class TrustedUpdateAddressHttpsConnectionFactory(
 ) : (URL) -> java.net.HttpURLConnection {
     override fun invoke(url: URL): java.net.HttpURLConnection {
         require(url.protocol.equals("https", ignoreCase = true)) { "可信地址连接必须使用 HTTPS" }
+        require(url.userInfo == null) { "可信地址连接不允许携带用户信息" }
+        require(url.port == -1 || url.port == 443) { "可信地址连接端口不受支持" }
         val transportUrl = addresses.firstOrNull()?.let { updateTrustedAddressUrl(url, it) } ?: url
         val connection = transportUrl.openConnection() as java.net.HttpURLConnection
         connection.setRequestProperty("Host", hostname)
@@ -278,17 +311,22 @@ private class UpdateAddressBoundSniSocketFactory(
     }
 
     private fun connectTrusted(port: Int): Socket {
-        var lastError: IOException? = null
-        addresses.forEach { address ->
+        var lastError: Throwable? = null
+        addresses.take(MAX_UPDATE_ADDRESS_ATTEMPTS).forEach { address ->
             var plain: Socket? = null
             try {
                 val socket = Socket()
                 plain = socket
                 socket.connect(InetSocketAddress(address, port), connectTimeoutMillis)
                 return delegate.createSocket(socket, hostname, port, true)
-            } catch (error: IOException) {
+            } catch (error: Throwable) {
                 runCatching { plain?.close() }
-                lastError = error
+                if (error is CancellationException) throw error
+                if (error is IOException) {
+                    lastError = error
+                } else {
+                    throw error
+                }
             }
         }
         throw lastError ?: UnknownHostException(hostname)

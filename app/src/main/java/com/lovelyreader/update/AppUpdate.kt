@@ -3,6 +3,7 @@ package com.lovelyreader.update
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.net.URL
 
 data class UpdateManifest(
     val versionCode: Long,
@@ -104,7 +105,7 @@ fun parseUpdateManifest(raw: String, currentVersionCode: Long): UpdateAvailabili
         notes = json.optString("notes").trim(),
         mandatory = json.optBoolean("mandatory", false)
     )
-    validateManifest(manifest)
+    validateUpdateManifest(manifest)
     if (manifest.versionCode <= currentVersionCode) UpdateAvailability.UpToDate
     else UpdateAvailability.Available(manifest.versionName)
 }.getOrElse { UpdateAvailability.Invalid(it.message ?: "更新清单格式错误") }
@@ -142,7 +143,7 @@ fun parseGitHubReleaseManifest(raw: String): UpdateManifest {
         notes = json.optString("body").trim(),
         mandatory = false
     ).also {
-        validateManifest(it)
+        validateUpdateManifest(it)
         validateGitHubAssetHost(it)
     }
 }
@@ -181,15 +182,28 @@ private fun sanitizeUpdateNotes(raw: String): String = raw.lines()
     .joinToString("\n")
     .ifBlank { "包含体验改进。" }
 
-private fun validateManifest(manifest: UpdateManifest) {
+internal fun validateUpdateManifest(manifest: UpdateManifest) {
     require(manifest.versionCode > 0) { "版本号无效" }
     require(manifest.versionName.isNotBlank()) { "版本名称为空" }
     val uri = URI(manifest.apkUrl)
     require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) { "安装包地址必须是 HTTPS" }
+    require(uri.userInfo == null) { "安装包地址不允许携带用户信息" }
+    require(uri.port == -1 || uri.port == 443) { "安装包地址端口不受支持" }
     require(manifest.sha256.matches(Regex("[0-9a-f]{64}"))) { "安装包校验值无效" }
 }
 
-private fun validateGitHubAssetHost(manifest: UpdateManifest) {
-    val host = URI(manifest.apkUrl).host.orEmpty()
+internal fun validateGitHubAssetHost(manifest: UpdateManifest) {
+    val uri = URI(manifest.apkUrl)
+    val host = uri.host.orEmpty()
     require(isAllowedUpdateAssetHost(host)) { "安装包地址不是受信任的 GitHub 资产地址" }
+    require(uri.scheme.equals("https", ignoreCase = true)) { "GitHub 安装包地址必须是 HTTPS" }
+    require(uri.port == -1 || uri.port == 443) { "GitHub 安装包地址端口不受支持" }
+}
+
+internal fun requireAllowedUpdateAssetUrl(url: URL): URL {
+    require(url.protocol.equals("https", ignoreCase = true)) { "GitHub 安装包地址必须是 HTTPS" }
+    require(url.userInfo == null) { "GitHub 安装包地址不允许携带用户信息" }
+    require(url.port == -1 || url.port == 443) { "GitHub 安装包地址端口不受支持" }
+    require(isAllowedUpdateAssetHost(url.host)) { "下载跳转到未受信任的主机" }
+    return url
 }

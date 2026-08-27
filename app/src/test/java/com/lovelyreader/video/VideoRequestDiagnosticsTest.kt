@@ -16,7 +16,7 @@ class VideoRequestDiagnosticsTest {
         val events = diagnostics.snapshot()
 
         assertEquals(2, events.size)
-        assertEquals("POST https://example.com/search - 找到搜索表单", events.first().displayText)
+        assertEquals("POST https://example.com - 找到搜索表单", events.first().displayText)
         assertFalse(events.joinToString().contains("private-title"))
         assertFalse(events.joinToString().contains("secret"))
     }

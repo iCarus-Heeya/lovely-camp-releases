@@ -2,14 +2,17 @@ package com.lovelyreader.video
 
 import com.lovelyreader.ui.video.DramaDownloadEnqueuer
 import com.lovelyreader.ui.video.DramaLibrary
+import com.lovelyreader.ui.video.DramaRequestError
 import com.lovelyreader.ui.video.DramaRootResolver
 import com.lovelyreader.ui.video.DramaViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class DramaViewModelTest {
     @Test
@@ -117,6 +120,62 @@ class DramaViewModelTest {
         assertEquals(source, viewModel.selectedSource.value)
         assertEquals(episode, viewModel.playback.value.episode)
         assertEquals(media, viewModel.playback.value.media)
+    }
+
+    @Test
+    fun `resume detail network failure remains visible instead of silently becoming unavailable`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val source = VideoSource("source", title.id, "Source")
+        val episode = VideoEpisode("episode-1", source.id, "Episode 1", "https://video.example/episode/1", 1, title.id)
+        val library = FakeLibrary().apply {
+            recent = VideoRecentViewing(title.id, title.name, source.id, episode.id, 0L, 0L, title.detailUrl)
+        }
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = FakeAdapter(
+                detail = VideoTitleDetail(title, listOf(source)),
+                episodes = mapOf(source.id to listOf(episode)),
+                remainingDetailFailures = 1
+            ),
+            library = library,
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.resumeRecentViewing()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.playback.value.message.contains("网络"))
+        assertTrue(viewModel.playback.value.message.contains("重试"))
+    }
+
+    @Test
+    fun `resume episodes network failure remains visible instead of becoming an empty playlist`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val source = VideoSource("source", title.id, "Source")
+        val episode = VideoEpisode("episode-1", source.id, "Episode 1", "https://video.example/episode/1", 1, title.id)
+        val library = FakeLibrary().apply {
+            recent = VideoRecentViewing(title.id, title.name, source.id, episode.id, 0L, 0L, title.detailUrl)
+        }
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = FakeAdapter(
+                detail = VideoTitleDetail(title, listOf(source)),
+                episodes = mapOf(source.id to listOf(episode)),
+                remainingEpisodeFailures = 1
+            ),
+            library = library,
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.resumeRecentViewing()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.playback.value.message.contains("网络"))
+        assertTrue(viewModel.playback.value.message.contains("重试"))
     }
 
     @Test
@@ -253,6 +312,207 @@ class DramaViewModelTest {
         assertTrue(viewModel.playback.value.message.contains("公开播放"))
     }
 
+    @Test
+    fun `network search failure is not rendered as no results and can retry`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val adapter = FakeAdapter(
+            detail = VideoTitleDetail(title, emptyList()),
+            episodes = emptyMap(),
+            remainingSearchFailures = 1
+        )
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = adapter,
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.search("Drama")
+        advanceUntilIdle()
+
+        assertEquals(DramaRequestError.Network, viewModel.searchResults.value.error)
+        assertTrue(viewModel.searchResults.value.canRetry)
+        assertTrue(!viewModel.searchResults.value.message.contains("没有找到匹配"))
+
+        viewModel.retrySearch()
+        advanceUntilIdle()
+
+        assertEquals(listOf(title), viewModel.searchResults.value.results)
+        assertEquals(null, viewModel.searchResults.value.error)
+    }
+
+    @Test
+    fun `network detail failure is visible and retry reloads the title`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val source = VideoSource("source", title.id, "Source")
+        val adapter = FakeAdapter(
+            detail = VideoTitleDetail(title, listOf(source)),
+            episodes = mapOf(source.id to emptyList()),
+            remainingDetailFailures = 1
+        )
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = adapter,
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+
+        assertEquals(DramaRequestError.Network, viewModel.selectedTitle.value.error)
+        assertTrue(viewModel.selectedTitle.value.canRetry)
+        assertTrue(viewModel.selectedTitle.value.message.contains("重试"))
+
+        viewModel.retrySelectedTitle()
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.selectedTitle.value.detail)
+        assertEquals(null, viewModel.selectedTitle.value.error)
+    }
+
+    @Test
+    fun `network episode failure is visible and retry reloads the selected source`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val source = VideoSource("source", title.id, "Source")
+        val episode = VideoEpisode("episode-1", source.id, "Episode 1", "https://video.example/episode/1", 1, title.id)
+        val adapter = FakeAdapter(
+            detail = VideoTitleDetail(title, listOf(source)),
+            episodes = mapOf(source.id to listOf(episode))
+        )
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = adapter,
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+        adapter.remainingEpisodeFailures = 1
+        viewModel.selectSource(source)
+        advanceUntilIdle()
+
+        assertEquals(DramaRequestError.Network, viewModel.selectedTitle.value.error)
+        assertTrue(viewModel.selectedTitle.value.canRetry)
+        assertTrue(viewModel.sourceEpisodes.value.isEmpty())
+
+        viewModel.retrySelectedSource()
+        advanceUntilIdle()
+
+        assertEquals(listOf(episode), viewModel.sourceEpisodes.value)
+        assertEquals(null, viewModel.selectedTitle.value.error)
+    }
+
+    @Test
+    fun `search retry refreshes an unavailable root before repeating the query`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        var resolveCalls = 0
+        val viewModel = DramaViewModel(
+            rootResolver = DramaRootResolver {
+                resolveCalls++
+                if (resolveCalls == 1) {
+                    VideoRootResolution(null, VideoRootResolutionStatus.UNAVAILABLE, "offline")
+                } else {
+                    VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")
+                }
+            },
+            siteAdapter = FakeAdapter(VideoTitleDetail(title, emptyList()), emptyMap()),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.search("Drama")
+        assertTrue(viewModel.searchResults.value.canRetry)
+        viewModel.retrySearch()
+        assertTrue(viewModel.searchResults.value.isLoading)
+        advanceUntilIdle()
+
+        assertEquals(2, resolveCalls)
+        assertEquals(listOf(title), viewModel.searchResults.value.results)
+        assertEquals(null, viewModel.searchResults.value.error)
+    }
+
+    @Test
+    fun `detail retry refreshes an unavailable root before loading the title`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        var resolveCalls = 0
+        val viewModel = DramaViewModel(
+            rootResolver = DramaRootResolver {
+                resolveCalls++
+                if (resolveCalls == 1) {
+                    VideoRootResolution(null, VideoRootResolutionStatus.UNAVAILABLE, "offline")
+                } else {
+                    VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")
+                }
+            },
+            siteAdapter = FakeAdapter(VideoTitleDetail(title, emptyList()), emptyMap()),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+        assertEquals(DramaRequestError.Unavailable, viewModel.selectedTitle.value.error)
+
+        viewModel.retrySelectedTitle()
+        assertTrue(viewModel.selectedTitle.value.isLoading)
+        advanceUntilIdle()
+
+        assertEquals(2, resolveCalls)
+        assertNotNull(viewModel.selectedTitle.value.detail)
+        assertEquals(null, viewModel.selectedTitle.value.error)
+    }
+
+    @Test
+    fun `source retry refreshes an unavailable root before loading episodes`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val source = VideoSource("source", title.id, "Source")
+        val episode = VideoEpisode("episode-1", source.id, "Episode 1", "https://video.example/episode/1", 1, title.id)
+        var resolveCalls = 0
+        val viewModel = DramaViewModel(
+            rootResolver = DramaRootResolver {
+                resolveCalls++
+                if (resolveCalls == 2) {
+                    VideoRootResolution(null, VideoRootResolutionStatus.UNAVAILABLE, "offline")
+                } else {
+                    VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")
+                }
+            },
+            siteAdapter = FakeAdapter(VideoTitleDetail(title, listOf(source)), mapOf(source.id to listOf(episode))),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+        viewModel.refreshRoot()
+        advanceUntilIdle()
+        viewModel.selectSource(source)
+        advanceUntilIdle()
+        assertEquals(DramaRequestError.Unavailable, viewModel.selectedTitle.value.error)
+
+        viewModel.retrySelectedSource()
+        assertTrue(viewModel.selectedTitle.value.isLoading)
+        advanceUntilIdle()
+
+        assertEquals(3, resolveCalls)
+        assertEquals(listOf(episode), viewModel.sourceEpisodes.value)
+        assertEquals(null, viewModel.selectedTitle.value.error)
+    }
+
     private class FakeResolver(private val resolution: VideoRootResolution) : DramaRootResolver {
         override suspend fun resolve(): VideoRootResolution = resolution
     }
@@ -260,11 +520,32 @@ class DramaViewModelTest {
     private class FakeAdapter(
         private val detail: VideoTitleDetail,
         private val episodes: Map<String, List<VideoEpisode>>,
-        private val media: Map<String, VideoMediaLink> = emptyMap()
+        private val media: Map<String, VideoMediaLink> = emptyMap(),
+        var remainingSearchFailures: Int = 0,
+        var remainingDetailFailures: Int = 0,
+        var remainingEpisodeFailures: Int = 0
     ) : VideoSiteAdapter {
-        override suspend fun search(root: VideoSiteRoot, query: String): List<VideoTitle> = listOf(detail.title)
-        override suspend fun loadDetail(root: VideoSiteRoot, titleUrl: String): VideoTitleDetail = detail
-        override suspend fun loadEpisodes(root: VideoSiteRoot, source: VideoSource): List<VideoEpisode> = episodes[source.id].orEmpty()
+        override suspend fun search(root: VideoSiteRoot, query: String): List<VideoTitle> {
+            if (remainingSearchFailures > 0) {
+                remainingSearchFailures--
+                throw IOException("simulated search network failure")
+            }
+            return listOf(detail.title)
+        }
+        override suspend fun loadDetail(root: VideoSiteRoot, titleUrl: String): VideoTitleDetail {
+            if (remainingDetailFailures > 0) {
+                remainingDetailFailures--
+                throw IOException("simulated detail network failure")
+            }
+            return detail
+        }
+        override suspend fun loadEpisodes(root: VideoSiteRoot, source: VideoSource): List<VideoEpisode> {
+            if (remainingEpisodeFailures > 0) {
+                remainingEpisodeFailures--
+                throw IOException("simulated episode network failure")
+            }
+            return episodes[source.id].orEmpty()
+        }
         override suspend fun loadMedia(root: VideoSiteRoot, episode: VideoEpisode): VideoMediaLink? = media[episode.id]
         override fun isDirectMp4(url: String): Boolean = url.endsWith(".mp4")
     }

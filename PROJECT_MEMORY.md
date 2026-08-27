@@ -1,5 +1,15 @@
 # Project Memory
 
+## 2026-08-27 — 追剧家庭 Wi‑Fi 浏览器式混合 DNS 地址选择（未发布）
+
+- 用户确认：公司 Wi‑Fi 使用同一 Debug 包可以完成追剧搜索；家庭 Wi‑Fi 日志曾同时返回 `::1` 与可达的 `23.224.*` 公网 IPv4。问题边界收窄为系统 DNS 混合答案与 APP 回退策略交互，不再把它归因于片源整体不可用。
+- `VideoTrustedDns.kt` 新增系统地址选择器：去重、共享过滤回环/任意/本地/链路本地/站点本地/组播、特殊 IPv4、IPv6 ULA/文档地址，混合答案保留公网地址并 IPv4 优先；`AndroidVideoPageFetcher` 复用预检地址，在有效系统地址失败后才进入 AliDNS 回退。
+- 可信连接仍使用内部 transport URL，强制 HTTPS/默认端口，保留原始 Host、TLS SNI、平台证书链和 hostname verification；新增 DNS 查询阶段/目标 HTTPS 阶段异常标签，诊断只保留 origin 并移除 query、fragment 和全部路径。更新器同步复用过滤地址、闭合 GitHub 资产白名单并禁止异常答案后的再次系统直连；所有更新连接统一关闭自动跳转并设置超时，畸形可信 DNS 响应会继续尝试下一个固定引导地址，网络探测不会触碰特殊地址。
+- TDD/验证：`VideoTrustedDnsPolicyTest`、`NetworkAddressPolicyTest`、`AndroidVideoPageFetcherNetworkTest`、`VideoHttpResponsePolicyTest`、`VideoConnectivityProbePolicyTest`、`DramaViewModelTest`、`DefaultVideoSiteAdapterTest` 和更新器边界测试通过；ASCII `C:\CodexTemp\video-browser-final-20260827` 全量 `testDebugUnitTest --rerun-tasks` 为 384 tests、0 failures、0 errors、8 skipped，Debug/Release assemble、签名和 zipalign 通过。候选 Release SHA-256 为 `B4CC2E60E1834BAB3750571CAFF090B505A62E90F9DA4F733FB66E0EFD818C38`（37,130,024 bytes），Debug SHA-256 为 `1BA815AF9098C8C9B53C1894D4B719BE6AF56247634C2F6D64B9397FEF1D3215`（48,314,621 bytes）。
+- UX 修正：搜索、详情、选集与媒体解析不再把网络/来源异常折叠成“没有结果”；状态区分真实空列表与请求失败，保留当前上下文提供重试，根地址为空时会先刷新根地址再恢复原请求，加载中显示进度并禁用重复搜索，取消旧协程不会污染当前状态。
+- QC 补强：适配器不再吞掉页面 GET/POST、详情、选集和媒体传输异常；恢复观看详情/选集保持网络错误文案并传播取消；可信更新回退响应再次执行拦截页/2xx 校验，视频与更新 AliDNS bootstrap 均使用 8 秒超时、固定请求头并禁用自动跳转。
+- 本轮未升 `versionName`/`versionCode`，候选 APK 仅在 ASCII 临时副本构建，未发布或上传 Git；家庭 Wi‑Fi 真机、真实搜索/详情/播放器仍待现场复测，Media3/WebView 子资源/DownloadManager/Cast/DLNA 媒体链路未被本轮页面请求策略接管。完整决策和验收边界见 `docs/video/task-44-browser-style-system-address-selection-20260827.md`、`docs/video/task-45-browser-network-security-hardening-20260827.md`、`docs/video/task-46-browser-network-ux-recovery-20260827.md`。
+
 ## 2026-08-26 — 更新器跨网络不可达与进度语义修正（未发布）
 
 - 用户已明确：追剧搜索/播放器失败是家庭 Wi‑Fi 的独立片源问题；更新器则在任何网络不开 VPN 都无法更新，且下载进度停在 0。两条链路不能混用。

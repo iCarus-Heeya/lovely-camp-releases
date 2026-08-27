@@ -7,7 +7,9 @@ import java.nio.charset.StandardCharsets
 /**
  * A conservative adapter for site pages exposed by the currently validated root.
  * It only follows same-origin HTML pages and returns empty/null when the page does
- * not expose the ordinary links and data attributes needed for a result.
+ * not expose the ordinary links and data attributes needed for a result. Transport
+ * failures are deliberately allowed to propagate so the ViewModel can distinguish
+ * an unavailable source from a successful empty result and offer a retry.
  */
 class DefaultVideoSiteAdapter(
     private val pageFetcher: VideoPageFetcher
@@ -17,19 +19,20 @@ class DefaultVideoSiteAdapter(
         val trimmedQuery = query.trim()
         if (trimmedQuery.isEmpty()) return emptyList()
 
-        val rootPage = fetch(rootUrl) ?: return emptyList()
+        val rootPage = fetch(rootUrl)
         val search = searchRequest(rootUrl, parse(rootPage)) ?: return emptyList()
         val resultPage = when (search.method) {
-            SearchMethod.POST -> runCatching {
-                pageFetcher.postForm(search.action.toString(), mapOf(search.parameter to trimmedQuery))
-            }.getOrNull()
+            SearchMethod.POST -> pageFetcher.postForm(
+                search.action.toString(),
+                mapOf(search.parameter to trimmedQuery)
+            )
             SearchMethod.GET -> {
                 val searchUrl = appendQuery(search.action, search.parameter, trimmedQuery)
                     ?.takeIf { isSameOrigin(rootUrl, it) }
                     ?: return emptyList()
                 fetch(searchUrl)
             }
-        } ?: return emptyList()
+        }
 
         val resultDocument = parse(resultPage)
         val titles = resultDocument.anchors.mapNotNull { anchor ->
@@ -63,7 +66,7 @@ class DefaultVideoSiteAdapter(
     override suspend fun loadDetail(root: VideoSiteRoot, titleUrl: String): VideoTitleDetail? {
         val rootUrl = validRoot(root) ?: return null
         val detailUrl = rootBoundUrl(rootUrl, titleUrl) ?: return null
-        val page = fetch(detailUrl) ?: return null
+        val page = fetch(detailUrl)
         val document = parse(page)
         val titleTag = document.tags.firstOrNull { tag ->
             tag.visible && (tag.attributes.containsKey("data-video-title") ||
@@ -112,7 +115,7 @@ class DefaultVideoSiteAdapter(
     override suspend fun loadEpisodes(root: VideoSiteRoot, source: VideoSource): List<VideoEpisode> {
         val rootUrl = validRoot(root) ?: return emptyList()
         val sourceUrl = rootBoundUrl(rootUrl, source.url) ?: return emptyList()
-        val page = fetch(withoutFragment(sourceUrl)) ?: return emptyList()
+        val page = fetch(withoutFragment(sourceUrl))
         val playlistId = sourceUrl.fragment?.takeIf(String::isNotBlank)
         if (playlistId != null) {
             return extract88ysEpisodes(page, playlistId, source)
@@ -142,7 +145,7 @@ class DefaultVideoSiteAdapter(
     override suspend fun loadMedia(root: VideoSiteRoot, episode: VideoEpisode): VideoMediaLink? {
         val rootUrl = validRoot(root) ?: return null
         val episodeUrl = rootBoundUrl(rootUrl, episode.url) ?: return null
-        val page = fetch(episodeUrl) ?: return null
+        val page = fetch(episodeUrl)
         val document = parse(page)
         val media = document.tags.firstNotNullOfOrNull(::mediaUrl) ?: publicConfiguredMediaUrl(page)
         if (media != null) {
@@ -168,7 +171,7 @@ class DefaultVideoSiteAdapter(
         return parsed.path?.endsWith(".mp4", ignoreCase = true) == true
     }
 
-    private suspend fun fetch(url: URI): String? = runCatching { pageFetcher.get(url.toString()) }.getOrNull()
+    private suspend fun fetch(url: URI): String = pageFetcher.get(url.toString())
 
     private fun validRoot(root: VideoSiteRoot): URI? = parseHttps(root.url)
 
