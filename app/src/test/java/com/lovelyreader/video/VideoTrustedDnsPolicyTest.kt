@@ -1,8 +1,11 @@
 package com.lovelyreader.video
 
+import java.io.ByteArrayInputStream
 import java.net.InetAddress
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +27,35 @@ class VideoTrustedDnsPolicyTest {
         assertTrue(!connection.instanceFollowRedirects)
         assertEquals("application/json", connection.getRequestProperty("Accept"))
         assertEquals("LovelyCamp/1.0 trusted-dns", connection.getRequestProperty("User-Agent"))
+    }
+
+    @Test
+    fun `trusted DNS resolver falls back to hostname HTTPS after fixed bootstrap timeouts`() = runTest {
+        var fixedBootstrapCalls = 0
+        var hostnameFallbackCalls = 0
+        val resolver = TrustedVideoDnsResolver(
+            bootstrapAddresses = listOf("223.5.5.5"),
+            openBootstrapConnection = { _, _ ->
+                fixedBootstrapCalls++
+                throw SocketTimeoutException("fixed bootstrap blocked")
+            },
+            openHostnameConnection = { url ->
+                hostnameFallbackCalls++
+                ResponseHttpURLConnection(
+                    url = url,
+                    responseCode = 200,
+                    body = """
+                        {"Answer":[{"type":1,"data":"23.224.113.227"}]}
+                    """.trimIndent()
+                )
+            }
+        )
+
+        val addresses = resolver.resolve("www.88ystv.com")
+
+        assertEquals(listOf("23.224.113.227"), addresses.map { it.hostAddress })
+        assertEquals(1, fixedBootstrapCalls)
+        assertEquals(1, hostnameFallbackCalls)
     }
 
     @Test
@@ -150,5 +182,17 @@ class VideoTrustedDnsPolicyTest {
         override fun disconnect() = Unit
         override fun usingProxy(): Boolean = false
         override fun connect() = Unit
+    }
+
+    private class ResponseHttpURLConnection(
+        url: URL,
+        private val responseCode: Int,
+        private val body: String
+    ) : HttpURLConnection(url) {
+        override fun disconnect() = Unit
+        override fun usingProxy(): Boolean = false
+        override fun connect() = Unit
+        override fun getResponseCode(): Int = responseCode
+        override fun getInputStream() = ByteArrayInputStream(body.toByteArray())
     }
 }

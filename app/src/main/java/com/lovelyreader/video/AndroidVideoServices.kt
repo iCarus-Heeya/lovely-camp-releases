@@ -189,6 +189,10 @@ class AndroidVideoPageFetcher(
             return fetchTrustedFallback("系统 DNS 未返回可用公网地址，正在使用可信 DNS 回退")
         }
 
+        if (preflight?.usableAddresses?.isNotEmpty() == true && preflight.rejectedAddressCount == 0) {
+            requestDiagnostics.record(method, url, "系统 DNS 地址全部可用，保留主机名 HTTPS 路径")
+        }
+
         return try {
             fetch(method, url, defaultRequest)
         } catch (error: Throwable) {

@@ -154,9 +154,108 @@ internal object NoopTrustedVideoDnsFallback : TrustedVideoDnsFallback {
     override suspend fun postForm(url: String, fields: Map<String, String>): String = throw UnknownHostException("可信 DNS 回退未配置")
 }
 
+/**
+ * Resolves a host through fixed AliDNS bootstrap addresses first, then through the same HTTPS
+ * hostname as a last-resort transport. The latter is still certificate-verified and redirect-free;
+ * it only helps networks that block direct connections to the resolver's published bootstrap IPs.
+ */
+internal class TrustedVideoDnsResolver(
+    private val openBootstrapConnection: (URL, InetAddress) -> java.net.HttpURLConnection,
+    private val openHostnameConnection: (URL) -> java.net.HttpURLConnection,
+    private val bootstrapAddresses: List<String> = trustedDnsBootstrapAddresses()
+) {
+    suspend fun resolve(host: String): List<InetAddress> = withContext(Dispatchers.IO) {
+        require(host.isNotBlank()) { "可信 DNS 主机为空" }
+        val encodedHost = URLEncoder.encode(host, "UTF-8")
+        val resolverUrl = URL("https://dns.alidns.com/resolve?name=$encodedHost&type=A")
+        var responseReceived = false
+        var lastError: IOException? = null
+
+        for (rawBootstrapAddress in bootstrapAddresses) {
+            val bootstrapAddress = parseTrustedIpv4Address(rawBootstrapAddress) ?: continue
+            var connection: java.net.HttpURLConnection? = null
+            try {
+                connection = openBootstrapConnection(resolverUrl, bootstrapAddress).apply {
+                    configureVideoTrustedDnsBootstrapConnection(this)
+                }
+                val responseCode = connection.responseCode
+                responseReceived = true
+                if (responseCode !in 200..299) {
+                    throw IOException("可信 DNS 引导响应 HTTP $responseCode")
+                }
+                val resolved = parseResolverResponse(connection)
+                if (resolved.isNotEmpty()) return@withContext resolved
+                throw IOException("可信 DNS 引导未返回可用 A 记录")
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                lastError = IOException(
+                    "可信 DNS 引导地址 ${bootstrapAddress.hostAddress} 查询失败",
+                    error
+                )
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
+        // Some Wi-Fi/ISP paths block direct HTTPS connections to 223.5.5.5/223.6.6.6 while
+        // allowing the resolver's normal hostname route. Keep this as a final, bounded fallback;
+        // the URL remains a fixed HTTPS endpoint with platform certificate verification.
+        var hostnameConnection: java.net.HttpURLConnection? = null
+        try {
+            hostnameConnection = openHostnameConnection(resolverUrl).apply {
+                configureVideoTrustedDnsBootstrapConnection(this)
+            }
+            val responseCode = hostnameConnection.responseCode
+            responseReceived = true
+            if (responseCode !in 200..299) {
+                throw IOException("可信 DNS 主机名回退响应 HTTP $responseCode")
+            }
+            val resolved = parseResolverResponse(hostnameConnection)
+            if (resolved.isNotEmpty()) return@withContext resolved
+            throw IOException("可信 DNS 主机名回退未返回可用 A 记录")
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            lastError = IOException("可信 DNS 主机名回退失败", error)
+        } finally {
+            hostnameConnection?.disconnect()
+        }
+
+        if (responseReceived) {
+            throw TrustedDnsResolutionException("可信 DNS 未返回可用 A 记录", lastError)
+        }
+        throw TrustedDnsResolutionException("可信 DNS 服务不可达", lastError)
+    }
+
+    private fun parseResolverResponse(connection: java.net.HttpURLConnection): List<InetAddress> {
+        val answer = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            .optJSONArray("Answer")
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until answer.length()) {
+                val item = answer.optJSONObject(index) ?: continue
+                if (item.optInt("type") != 1) continue
+                val address = parseTrustedIpv4Address(item.optString("data")) ?: continue
+                if (!isUnsafePublicAddress(address)) add(address)
+            }
+        }.distinctBy { it.hostAddress }
+    }
+}
+
 internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDnsFallback {
     private val appContext = context.applicationContext
     private val addressCache = TrustedDnsAddressCache()
+    private val dnsResolver = TrustedVideoDnsResolver(
+        openBootstrapConnection = { resolverUrl, bootstrapAddress ->
+            TrustedAddressHttpsConnectionFactory(
+                "dns.alidns.com",
+                listOf(bootstrapAddress),
+                TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
+            )(resolverUrl)
+        },
+        openHostnameConnection = { resolverUrl ->
+            resolverUrl.openConnection() as java.net.HttpURLConnection
+        }
+    )
 
     override suspend fun preflight(url: String): TrustedDnsFallbackReason? = preflightSelection(url).fallbackReason
 
@@ -251,50 +350,11 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
         const val TRUSTED_TARGET_READ_TIMEOUT_MILLIS = 75_000
     }
 
-    private suspend fun resolveWithAliDns(host: String): List<InetAddress> = withContext(Dispatchers.IO) {
-        addressCache.get(host)?.let { return@withContext it }
-        val encodedHost = URLEncoder.encode(host, "UTF-8")
-        val resolverUrl = URL("https://dns.alidns.com/resolve?name=$encodedHost&type=A")
-        var responseReceived = false
-        var lastError: IOException? = null
-        trustedDnsBootstrapAddresses().map(InetAddress::getByName).forEach { bootstrapAddress ->
-            var connection: HttpsURLConnection? = null
-            try {
-                connection = (TrustedAddressHttpsConnectionFactory(
-                    "dns.alidns.com",
-                    listOf(bootstrapAddress),
-                    TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
-                )(resolverUrl) as HttpsURLConnection).apply {
-                    configureVideoTrustedDnsBootstrapConnection(this)
-                }
-                responseReceived = true
-                if (connection.responseCode !in 200..299) return@forEach
-                val answer = JSONObject(connection.inputStream.bufferedReader().use { it.readText() }).optJSONArray("Answer")
-                    ?: return@forEach
-                val resolved = buildList {
-                    for (index in 0 until answer.length()) {
-                        val item = answer.optJSONObject(index) ?: continue
-                        if (item.optInt("type") != 1) continue
-                        val address = parseTrustedIpv4Address(item.optString("data")) ?: continue
-                        if (!isUnsafePublicAddress(address)) add(address)
-                    }
-                }.distinctBy { it.hostAddress }
-                addressCache.put(host, resolved)
-                return@withContext resolved
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                lastError = IOException(
-                    "可信 DNS 引导地址 ${bootstrapAddress.hostAddress} 查询失败",
-                    error
-                )
-            } finally {
-                connection?.disconnect()
-            }
+    private suspend fun resolveWithAliDns(host: String): List<InetAddress> {
+        addressCache.get(host)?.let { return it }
+        return dnsResolver.resolve(host).also { resolved ->
+            addressCache.put(host, resolved)
         }
-        if (responseReceived) {
-            throw TrustedDnsResolutionException("可信 DNS 未返回可用 A 记录")
-        }
-        throw TrustedDnsResolutionException("可信 DNS 服务不可达", lastError)
     }
 }
 
