@@ -9,6 +9,7 @@
 - UX 修正：搜索、详情、选集与媒体解析不再把网络/来源异常折叠成“没有结果”；状态区分真实空列表与请求失败，保留当前上下文提供重试，根地址为空时会先刷新根地址再恢复原请求，加载中显示进度并禁用重复搜索，取消旧协程不会污染当前状态。
 - QC 补强：适配器不再吞掉页面 GET/POST、详情、选集和媒体传输异常；恢复观看详情/选集保持网络错误文案并传播取消；可信更新回退响应再次执行拦截页/2xx 校验，视频与更新 AliDNS bootstrap 均使用 8 秒超时、固定请求头并禁用自动跳转。
 - 本轮未升 `versionName`/`versionCode`，候选 APK 仅在 ASCII 临时副本构建，未发布或上传 Git；家庭 Wi‑Fi 真机、真实搜索/详情/播放器仍待现场复测，Media3/WebView 子资源/DownloadManager/Cast/DLNA 媒体链路未被本轮页面请求策略接管。完整决策和验收边界见 `docs/video/task-44-browser-style-system-address-selection-20260827.md`、`docs/video/task-45-browser-network-security-hardening-20260827.md`、`docs/video/task-46-browser-network-ux-recovery-20260827.md`。
+- 构件整理：本轮候选已复制到 `../artifacts/candidates/browser-network-20260827/`；项目根目录不再放 APK，2026-08-25 旧 0.9.1 交付副本已归档到 `../artifacts/releases/legacy/20260825-v0.9.1-visual-interaction-polish/`。
 
 ## 2026-08-26 — 更新器跨网络不可达与进度语义修正（未发布）
 
@@ -27,7 +28,7 @@
 
 ## Current candidate refresh: 2026-08-25 Version 0.9.1+88 — visual interaction polish
 
-- Local delivery artifacts: root [Release `老婆的小营地-v0.9.1.apk`](../老婆的小营地-v0.9.1.apk), SHA-256 `878C976DB2C6E3467A6BCD383DDD9B5C85C0CF31650E1755365BE432D4F93569`, 37,104,011 bytes; [Debug `老婆的小营地-debug-v0.9.1.apk`](../老婆的小营地-debug-v0.9.1.apk), SHA-256 `23A0C7CFD689B7B62A5E78C4534AF1ED8E2A66E5E46537C7022BC65996AEDB58`, 48,888,696 bytes. Both built from current source with `versionCode=88`, `versionName=0.9.1`; package `com.lovelyreader`.
+- Local delivery artifacts (historical 2026-08-25 build): [Release 归档包](../artifacts/releases/legacy/20260825-v0.9.1-visual-interaction-polish/老婆的小营地-v0.9.1.apk), SHA-256 `878C976DB2C6E3467A6BCD383DDD9B5C85C0CF31650E1755365BE432D4F93569`, 37,104,011 bytes; [Debug 归档包](../artifacts/releases/legacy/20260825-v0.9.1-visual-interaction-polish/老婆的小营地-debug-v0.9.1.apk), SHA-256 `23A0C7CFD689B7B62A5E78C4534AF1ED8E2A66E5E46537C7022BC65996AEDB58`, 48,888,696 bytes. Both built from source with `versionCode=88`, `versionName=0.9.1`; package `com.lovelyreader`.
 - Scope: numeric drama episode labels no longer ellipsize; book-detail author is a semantic search action with a seeded search field; negative offline capability copy is hidden; reader center-tap chrome is a three-state overlay cycle with constant pagination inset; Release no longer exposes the high-fidelity acceptance button; shared visual tokens remain the dynamic-page contract.
 - Verification status: source Debug/Release assemble passed; ASCII full suite reports 335 tests, 0 failures, 0 errors, 8 skipped; aapt2 reports 88/0.9.1; Release APK Signature Scheme v2=true with one signer; zipalign verification passed. Fresh emulator role evidence and final full-suite count are recorded in `docs/ui/evidence/20260825-visual-interaction-polish/`, the five independent role reports under `docs/ui/team-audit/`, and the 0.9.1 release record.
 - PO/PM gate: `docs/ui/team-audit/po-gate-v0.9.1-20260825.md` records UX, QA, QC-1, QC-2 and QC-3 as independent PASS gates within local/executable scope; external live limitations remain explicit.
@@ -54,7 +55,7 @@
 - Verification: ASCII copy `C:\CodexTemp\home-wifi-update-20250825-v3` passed full `testDebugUnitTest` with 313 tests, 0 failures, 0 errors, 8 skipped; `assembleDebug assembleRelease` passed (84 actionable tasks). Release is package `com.lovelyreader`, versionCode `86`, versionName `0.8.23`; `apksigner` v2=true/1 signer; `zipalign -c` passed. Final rebuilt Debug/Release cold start, settings, drama home/search, diagnostics and Release nine-page concept gate are in `docs/ui/evidence/20260825-high-fidelity/iteration43/`; no FATAL/ANR markers.
 - Pixel gate: all 9 approved concept assets have identical SHA-256 in `docs/ui/concepts-20260823-9x16/` and `source/app/src/main/assets/concept/`; current Release screenshots map each content area to its asset with MAE `0.227–0.709` after the page-specific crop policy. This is a static concept-gate result, not a claim that arbitrary dynamic production data is mathematically identical.
 - Sign-off records: `docs/ui/team-audit/ux-review-final43-20260825.md`, `qa-review-final43-20260825.md`, and `qc-crosscheck-final43-20260825.md`. Live limitations remain: affected physical home Wi-Fi must still show “可信 DNS 回退成功” and real search/playback; update asset download and digest verification are now live-verified, while Android installer confirmation, real media, casting, background downloads and HarmonyOS remain external acceptance items.
-- Workspace hygiene: temporary captures remain under dated `../docs/ui/evidence/` folders; the nine legacy `diagnose_*.py` utilities are under `../tools/diagnostics/legacy/`, leaving only delivery APKs and project entry files in the workspace root.
+- Workspace hygiene (historical snapshot): temporary captures remain under dated `../docs/ui/evidence/` folders; the nine legacy `diagnose_*.py` utilities are under `../tools/diagnostics/legacy/`. This root-delivery convention was superseded on 2026-08-27 by `../docs/artifact-layout-20260827.md`; current root contains no APK.
 
 ## Current candidate refresh: 2026-08-24 Version 0.8.21+84 - Final40 user-feedback fix and v4 rerun
 
