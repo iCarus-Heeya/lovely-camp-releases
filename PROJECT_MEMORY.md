@@ -1,5 +1,16 @@
 # Project Memory
 
+## 2026-08-28 — 九门播放器空白与南部档案馆标题搜索候选（未发布）
+
+- 用户反馈：《九门》可搜索但点入第 3 集后播放器黑屏；站点有《南部档案》，搜索“南部档案馆”却无结果。
+- 现场只读快照 `C:\CodexTemp\player-investigation-20260827`：精确“南部档案馆” POST 返回 0 条，去掉尾部“馆”的“南部档案”返回 `/guochanju/202606/274367.html`；九门剧集页由 `player.www.js`/`player/youku.js` 动态创建 `vip.jsjinfu.com:8443?url=…` 外部 iframe，带有效令牌和 Referer 的主机请求为 200。该证据证明页面入口存在，不等价于 Android WebView 真机已播放。
+- `DefaultVideoSiteAdapter` 先按精确词搜索，精确无卡片且尾部为“馆”时只重试一次去掉“馆”的候选；网络异常仍传播，避免把网络失败误报空结果。
+- `SitePlayerWebView` 改用浏览器兼容 UA（移除 `; wv`/legacy `Version`）、开启 cookie 与第三方 cookie；识别 provider iframe 完成 URL，捕获 provider 资源/HTTP 错误，15 秒无确认显示“播放器加载较慢”，失败显示“播放器连接失败”，均可重新连接或回到选集切源；iframe 仍保留原始 Referer 上下文，不顶层导航、不提取或伪造媒体地址。
+- 设计、缺陷、测试矩阵、候选构件、发布记录和五个独立角色报告已更新：`docs/video/task-47-player-search-recovery-20260828.md`、`docs/video/bug-experience.md`（VIDEO-008）、`docs/video/team-audit/*player-search-20260828.md`。
+- ASCII `C:\CodexTemp\video-browser-final-20260827` 全量 `testDebugUnitTest --rerun-tasks` 成功，77 份 JUnit XML 合计 **388 test cases、0 failures、0 errors**；`assembleDebug assembleRelease` 成功。`com.lovelyreader` 版本仍 `0.9.1+88`；Release v2 单签名与 zipalign 通过。
+- 当前根候选：Debug `老婆的小营地-debug-v0.9.1.apk` 49,097,462 bytes，SHA-256 `02DDD5BA9EE06A65679AEAF5A94489E10C0CBC3AEBC4160299B17FB14F144507`；Release `老婆的小营地-v0.9.1.apk` 37,134,719 bytes，SHA-256 `BAB716EC7D3250BB3CB9D27F0D126594FC57172B9339A2ADF77B126329E19E84`。上一候选已归档到 `../artifacts/releases/legacy/20260828-v0.9.1-player-search-previous/`，校验说明为 `../artifacts/candidates/player-search-fix-20260828/README.md`。
+- **未闭环/发布边界：** 当前 `adb devices` 为空，家庭 Wi‑Fi 下 WebView 主页面/iframe/脚本/视频子资源仍由平台网络栈处理，不能把《九门》真实出画面写成通过；需执行测试矩阵 MA-13。未升版本号、未 push/tag、未创建公开 Release；本轮为本地候选，不能由更新器发现。
+
 ## 2026-08-27 — 追剧家庭 Wi‑Fi 浏览器式混合 DNS 地址选择（未发布）
 
 - 用户确认：公司 Wi‑Fi 使用同一 Debug 包可以完成追剧搜索；家庭 Wi‑Fi 日志曾同时返回 `::1` 与可达的 `23.224.*` 公网 IPv4。问题边界收窄为系统 DNS 混合答案与 APP 回退策略交互，不再把它归因于片源整体不可用。

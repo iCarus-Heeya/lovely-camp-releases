@@ -2,6 +2,17 @@ package com.lovelyreader.ui.video
 
 import java.net.URI
 
+/**
+ * A number of embedded player gateways serve a blank shell to Android's
+ * `; wv` user agent even though the same URL works in Chrome. Keep the
+ * device's browser version and platform details, but remove only the WebView
+ * marker and the legacy Version token that identifies the embedded browser.
+ */
+internal fun browserCompatibleSitePlayerUserAgent(currentUserAgent: String): String = currentUserAgent
+    .replace(Regex("\\s*;\\s*wv(?=\\s|$|\\))", RegexOption.IGNORE_CASE), "")
+    .replace(Regex("\\s+Version/\\d+(?:\\.\\d+)*", RegexOption.IGNORE_CASE), "")
+    .trim()
+
 /** The provider player may open a separate HTTPS/HTTP media host, never local app schemes. */
 internal fun isAllowedSitePlayerNavigation(destination: String): Boolean {
     val uri = runCatching { URI(destination) }.getOrNull() ?: return false

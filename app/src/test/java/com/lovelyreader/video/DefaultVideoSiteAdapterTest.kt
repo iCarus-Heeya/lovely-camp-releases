@@ -129,6 +129,31 @@ class DefaultVideoSiteAdapterTest {
     }
 
     @Test
+    fun `88ystv search retries without a trailing venue suffix when exact title is empty`() = runTest {
+        val siteRoot = VideoSiteRoot("https://www.88ystv.com", validatedAtMillis = 1)
+        val fetcher = FakePageFetcher(
+            mapOf(siteRoot.url to """<form action="/search/" method="post"><input name="wd" type="text"></form>"""),
+            formResponses = mapOf(
+                FormRequest("https://www.88ystv.com/search/", mapOf("wd" to "南部档案馆")) to
+                    """<p>与<b class="key">南部档案馆</b>相关共<b class="key">0</b>条</p>""",
+                FormRequest("https://www.88ystv.com/search/", mapOf("wd" to "南部档案")) to
+                    """<ul><li class="p1 m1"><a href="/guochanju/202606/274367.html" title="南部档案" class="link-hover"><p class="name">南部档案</p></a></li></ul>"""
+            )
+        )
+
+        val titles = DefaultVideoSiteAdapter(fetcher).search(siteRoot, "南部档案馆")
+
+        assertEquals(listOf("南部档案"), titles.map(VideoTitle::name))
+        assertEquals(
+            listOf(
+                FormRequest("https://www.88ystv.com/search/", mapOf("wd" to "南部档案馆")),
+                FormRequest("https://www.88ystv.com/search/", mapOf("wd" to "南部档案"))
+            ),
+            fetcher.formRequests
+        )
+    }
+
+    @Test
     fun `88ystv detail exposes every source and selected playlist episodes`() = runTest {
         val siteRoot = VideoSiteRoot("https://www.88ystv.com", validatedAtMillis = 1)
         val detailUrl = "https://www.88ystv.com/guochanju/nanbudanganguan/"

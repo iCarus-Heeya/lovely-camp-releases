@@ -8,6 +8,18 @@ import org.junit.Test
 
 class SitePlayerNavigationPolicyTest {
     @Test
+    fun `site player user agent follows browser shape instead of Android WebView marker`() {
+        val webViewAgent = "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SQ3A) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 wv"
+
+        val browserAgent = browserCompatibleSitePlayerUserAgent(webViewAgent)
+
+        assertFalse(browserAgent.contains("; wv", ignoreCase = true))
+        assertFalse(browserAgent.contains("Version/4.0", ignoreCase = true))
+        assertTrue(browserAgent.contains("Chrome/120.0.0.0", ignoreCase = true))
+        assertTrue(browserAgent.contains("Mobile", ignoreCase = true))
+    }
+
+    @Test
     fun `allows web player navigation but rejects local application schemes`() {
         assertTrue(isAllowedSitePlayerNavigation("https://vip.example/player?episode=1"))
         assertTrue(isAllowedSitePlayerNavigation("http://legacy-media.example/player"))

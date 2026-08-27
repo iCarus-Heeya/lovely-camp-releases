@@ -9,6 +9,7 @@ import android.view.View
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -1431,13 +1432,27 @@ private fun SitePlayerWebView(
     var playerReady by remember { mutableStateOf(false) }
     var entryPageFinished by remember { mutableStateOf(false) }
     var mainFrameFailed by remember { mutableStateOf(false) }
+    var providerFailed by remember { mutableStateOf(false) }
     var confirmedPlayerUrl by remember { mutableStateOf<String?>(null) }
+    var loadTimedOut by remember { mutableStateOf(false) }
+    LaunchedEffect(episodeUrl, retryKey) {
+        loadTimedOut = false
+        delay(15_000)
+        if (!playerReady && !providerFailed) loadTimedOut = true
+    }
     Box(modifier = modifier) {
     AndroidView(
         factory = { viewContext ->
             WebView(viewContext).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                // The provider gateway is embedded cross-origin. Chrome sends
+                // the browser UA and permits the provider's session cookies;
+                // the default Android WebView marker (`; wv`) otherwise makes
+                // several gateways return only an empty black shell.
+                settings.userAgentString = browserCompatibleSitePlayerUserAgent(settings.userAgentString)
+                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.allowFileAccess = false
@@ -1476,6 +1491,7 @@ private fun SitePlayerWebView(
                     onPlayerReady = { playerReady = true },
                     onEntryPageFinished = { entryPageFinished = true },
                     onMainFrameFailed = { mainFrameFailed = true },
+                    onProviderFrameFailed = { providerFailed = true },
                     onMediaDiscovered = onMediaDiscovered,
                     confirmedPlayerUrl = { confirmedPlayerUrl }
                 )
@@ -1484,7 +1500,7 @@ private fun SitePlayerWebView(
             }
         },
         update = { webView ->
-            webView.alpha = when (sitePlayerContentVisibility(entryPageFinished, playerReady, mainFrameFailed)) {
+            webView.alpha = when (sitePlayerContentVisibility(entryPageFinished, playerReady, mainFrameFailed, providerFailed)) {
                 SitePlayerContentVisibility.Visible -> 1f
                 SitePlayerContentVisibility.Hidden, SitePlayerContentVisibility.Failed -> 0f
             }
@@ -1494,10 +1510,17 @@ private fun SitePlayerWebView(
         },
         modifier = Modifier.fillMaxSize()
     )
-    if (sitePlayerContentVisibility(entryPageFinished, playerReady, mainFrameFailed) == SitePlayerContentVisibility.Failed) {
+    if (sitePlayerContentVisibility(entryPageFinished, playerReady, mainFrameFailed, providerFailed) == SitePlayerContentVisibility.Failed) {
         SoftPanel(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("片源页面未能打开", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
-            Text("当前网络没有连接到该片源。请重试，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
+            Text("播放器连接失败", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
+            Text("当前网络没有连接到片源播放器。请重试，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
+            Button(onClick = { retryKey++ }) { Text("重新连接") }
+        }
+    }
+    if (loadTimedOut && !playerReady && !providerFailed && !mainFrameFailed) {
+        SoftPanel(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("播放器加载较慢", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
+            Text("片源页面超过 15 秒仍未响应。可以重新连接，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
             Button(onClick = { retryKey++ }) { Text("重新连接") }
         }
     }
@@ -1511,6 +1534,7 @@ private class SitePlayerWebViewClient(
     private val onPlayerReady: () -> Unit,
     private val onEntryPageFinished: () -> Unit,
     private val onMainFrameFailed: () -> Unit,
+    private val onProviderFrameFailed: () -> Unit,
     private val onMediaDiscovered: (com.lovelyreader.video.VideoMediaLink) -> Unit,
     private val confirmedPlayerUrl: () -> String?
 ) : WebViewClient() {
@@ -1519,6 +1543,15 @@ private class SitePlayerWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
+        // Some WebView versions report the iframe's completed URL without a
+        // preceding onLoadResource callback. Treat that completed external
+        // player page as a confirmed frame so the app does not leave the
+        // player permanently transparent.
+        visibleProviderPlayerUrl(url, episodeUrl)?.let { playerUrl ->
+            onPlayerFrameFound(playerUrl)
+            onPlayerReady()
+            return
+        }
         if (shouldRevealConfirmedProviderPlayer(url, confirmedPlayerUrl())) {
             onPlayerReady()
             return
@@ -1562,6 +1595,7 @@ private class SitePlayerWebViewClient(
         error: android.webkit.WebResourceError
     ) {
         super.onReceivedError(view, request, error)
+        if (isProviderFrameRequest(request.url.toString(), episodeUrl)) onProviderFrameFailed()
         if (request.isForMainFrame) onMainFrameFailed()
     }
 
@@ -1571,6 +1605,9 @@ private class SitePlayerWebViewClient(
         errorResponse: android.webkit.WebResourceResponse
     ) {
         super.onReceivedHttpError(view, request, errorResponse)
+        if (errorResponse.statusCode >= 400 && isProviderFrameRequest(request.url.toString(), episodeUrl)) {
+            onProviderFrameFailed()
+        }
         if (request.isForMainFrame && errorResponse.statusCode >= 400) onMainFrameFailed()
     }
 
