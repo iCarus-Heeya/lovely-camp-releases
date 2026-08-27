@@ -1,6 +1,8 @@
 package com.lovelyreader.video
 
 import com.lovelyreader.source.HttpTextClient
+import java.io.ByteArrayInputStream
+import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.test.runTest
@@ -55,18 +57,23 @@ class AndroidVideoPageFetcherNetworkTest {
     }
 
     @Test
-    fun `all usable preflight addresses are pinned instead of re-resolving the hostname`() = runTest {
-        val fallback = FakeTrustedVideoDnsFallback(allUsableAnswer)
+    fun `all usable preflight addresses keep the browser hostname request path`() = runTest {
+        var defaultCalls = 0
+        val fallback = FakeTrustedVideoDnsFallback(
+            selection = allUsableAnswer,
+            systemGetResult = { error("all-usable answers must not use the address-pinned path") },
+            trustedGetResult = { error("default hostname request should succeed") }
+        )
         val fetcher = AndroidVideoPageFetcher(
-            client = unusableDefaultClient(),
+            client = successfulDefaultClient { defaultCalls++ },
             trustedDnsFallback = fallback
         )
 
-        fetcher.get("https://www.88ystv.com/")
+        assertTrue(fetcher.get("https://www.88ystv.com/").contains("<form"))
 
-        assertEquals(1, fallback.systemGetCalls)
+        assertEquals(1, defaultCalls)
+        assertEquals(0, fallback.systemGetCalls)
         assertEquals(0, fallback.trustedGetCalls)
-        assertEquals("23.224.113.227", fallback.lastSystemAddresses.single().hostAddress)
     }
 
     @Test
@@ -123,6 +130,20 @@ class AndroidVideoPageFetcherNetworkTest {
     private fun unusableDefaultClient() = HttpTextClient(
         minimumIntervalMillis = 0,
         connectionFactory = { error("default request must not be selected in this test") }
+    )
+
+    private fun successfulDefaultClient(onOpen: () -> Unit) = HttpTextClient(
+        minimumIntervalMillis = 0,
+        connectionFactory = { url ->
+            onOpen()
+            object : HttpURLConnection(url) {
+                override fun disconnect() = Unit
+                override fun usingProxy(): Boolean = false
+                override fun connect() = Unit
+                override fun getResponseCode(): Int = 200
+                override fun getInputStream() = ByteArrayInputStream("<html><form></form></html>".toByteArray())
+            }
+        }
     )
 
     private class FakeTrustedVideoDnsFallback(
