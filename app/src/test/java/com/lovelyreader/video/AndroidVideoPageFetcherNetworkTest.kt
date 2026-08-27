@@ -74,6 +74,7 @@ class AndroidVideoPageFetcherNetworkTest {
         assertEquals(1, defaultCalls)
         assertEquals(0, fallback.systemGetCalls)
         assertEquals(0, fallback.trustedGetCalls)
+        assertTrue(fetcher.diagnostics().any { it.detail.contains("保留主机名 HTTPS 路径") })
     }
 
     @Test
