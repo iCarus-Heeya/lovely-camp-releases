@@ -8,6 +8,7 @@
 - `SitePlayerWebView` 改用浏览器兼容 UA（移除 `; wv`/legacy `Version`）、开启 cookie 与第三方 cookie；识别 provider iframe 完成 URL，捕获 provider 资源/HTTP 错误，15 秒无确认显示“播放器加载较慢”，失败显示“播放器连接失败”，均可重新连接或回到选集切源；iframe 仍保留原始 Referer 上下文，不顶层导航、不提取或伪造媒体地址。
 - 设计、缺陷、测试矩阵、候选构件、发布记录和五个独立角色报告已更新：`docs/video/task-47-player-search-recovery-20260828.md`、`docs/video/bug-experience.md`（VIDEO-008）、`docs/video/team-audit/*player-search-20260828.md`。
 - ASCII `C:\CodexTemp\video-browser-final-20260827` 全量 `testDebugUnitTest --rerun-tasks` 成功，77 份 JUnit XML 合计 **388 test cases、0 failures、0 errors**；`assembleDebug assembleRelease` 成功。`com.lovelyreader` 版本仍 `0.9.1+88`；Release v2 单签名与 zipalign 通过。
+- 源码本地提交：`f51d111 fix: recover site player and title search aliases`；未 push/tag/release。
 - 当前根候选：Debug `老婆的小营地-debug-v0.9.1.apk` 49,097,462 bytes，SHA-256 `02DDD5BA9EE06A65679AEAF5A94489E10C0CBC3AEBC4160299B17FB14F144507`；Release `老婆的小营地-v0.9.1.apk` 37,134,719 bytes，SHA-256 `BAB716EC7D3250BB3CB9D27F0D126594FC57172B9339A2ADF77B126329E19E84`。上一候选已归档到 `../artifacts/releases/legacy/20260828-v0.9.1-player-search-previous/`，校验说明为 `../artifacts/candidates/player-search-fix-20260828/README.md`。
 - **未闭环/发布边界：** 当前 `adb devices` 为空，家庭 Wi‑Fi 下 WebView 主页面/iframe/脚本/视频子资源仍由平台网络栈处理，不能把《九门》真实出画面写成通过；需执行测试矩阵 MA-13。未升版本号、未 push/tag、未创建公开 Release；本轮为本地候选，不能由更新器发现。
 
