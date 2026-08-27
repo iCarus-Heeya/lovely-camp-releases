@@ -6,9 +6,10 @@ internal enum class SitePlayerContentVisibility { Hidden, Visible, Failed }
 internal fun sitePlayerContentVisibility(
     entryPageFinished: Boolean,
     providerReady: Boolean,
-    mainFrameFailed: Boolean
+    mainFrameFailed: Boolean,
+    providerFailed: Boolean = false
 ): SitePlayerContentVisibility = when {
-    mainFrameFailed -> SitePlayerContentVisibility.Failed
+    mainFrameFailed || providerFailed -> SitePlayerContentVisibility.Failed
     providerReady || entryPageFinished -> SitePlayerContentVisibility.Visible
     else -> SitePlayerContentVisibility.Hidden
 }

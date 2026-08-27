@@ -19,4 +19,12 @@ class SitePlayerPresentationPolicyTest {
             sitePlayerContentVisibility(entryPageFinished = false, providerReady = false, mainFrameFailed = true)
         )
     }
+
+    @Test
+    fun `provider frame failure is reported instead of leaving a black player`() {
+        assertEquals(
+            SitePlayerContentVisibility.Failed,
+            sitePlayerContentVisibility(entryPageFinished = true, providerReady = false, mainFrameFailed = false, providerFailed = true)
+        )
+    }
 }

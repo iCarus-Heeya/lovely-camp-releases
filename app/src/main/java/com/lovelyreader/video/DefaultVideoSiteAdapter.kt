@@ -21,46 +21,49 @@ class DefaultVideoSiteAdapter(
 
         val rootPage = fetch(rootUrl)
         val search = searchRequest(rootUrl, parse(rootPage)) ?: return emptyList()
-        val resultPage = when (search.method) {
-            SearchMethod.POST -> pageFetcher.postForm(
-                search.action.toString(),
-                mapOf(search.parameter to trimmedQuery)
-            )
-            SearchMethod.GET -> {
-                val searchUrl = appendQuery(search.action, search.parameter, trimmedQuery)
-                    ?.takeIf { isSameOrigin(rootUrl, it) }
-                    ?: return emptyList()
-                fetch(searchUrl)
+        for (candidateQuery in searchQueryCandidates(trimmedQuery)) {
+            val resultPage = when (search.method) {
+                SearchMethod.POST -> pageFetcher.postForm(
+                    search.action.toString(),
+                    mapOf(search.parameter to candidateQuery)
+                )
+                SearchMethod.GET -> {
+                    val searchUrl = appendQuery(search.action, search.parameter, candidateQuery)
+                        ?.takeIf { isSameOrigin(rootUrl, it) }
+                        ?: return emptyList()
+                    fetch(searchUrl)
+                }
             }
-        }
 
-        val resultDocument = parse(resultPage)
-        val titles = resultDocument.anchors.mapNotNull { anchor ->
-            if (!isTitleMarker(anchor.attributes) && !is88ysTitleCard(anchor)) return@mapNotNull null
-            val detailUrl = rootBoundUrl(rootUrl, anchor.href) ?: return@mapNotNull null
-            val name = firstNonBlank(
-                anchor.attributes["data-video-title"],
-                anchor.attributes["data-title"],
-                anchor.attributes["title"],
-                anchor.text
-            ) ?: return@mapNotNull null
-            val card = searchCardMetadata(resultPage, anchor.href)
-            VideoTitle(
-                id = detailUrl.toString(),
-                name = name,
-                detailUrl = detailUrl.toString(),
-                posterUrl = publicPosterUrl(
-                    rootUrl,
-                    firstNonBlank(anchor.attributes["data-poster"], anchor.attributes["data-image"], card.poster)
-                )?.toString(),
-                summary = firstNonBlank(anchor.attributes["data-summary"], anchor.attributes["data-description"], card.summary),
-                releaseInfo = card.releaseInfo,
-                castInfo = card.castInfo,
-                categoryInfo = card.categoryInfo,
-                updateInfo = card.updateInfo
-            )
-        }.distinctBy(VideoTitle::detailUrl)
-        return titles
+            val resultDocument = parse(resultPage)
+            val titles = resultDocument.anchors.mapNotNull { anchor ->
+                if (!isTitleMarker(anchor.attributes) && !is88ysTitleCard(anchor)) return@mapNotNull null
+                val detailUrl = rootBoundUrl(rootUrl, anchor.href) ?: return@mapNotNull null
+                val name = firstNonBlank(
+                    anchor.attributes["data-video-title"],
+                    anchor.attributes["data-title"],
+                    anchor.attributes["title"],
+                    anchor.text
+                ) ?: return@mapNotNull null
+                val card = searchCardMetadata(resultPage, anchor.href)
+                VideoTitle(
+                    id = detailUrl.toString(),
+                    name = name,
+                    detailUrl = detailUrl.toString(),
+                    posterUrl = publicPosterUrl(
+                        rootUrl,
+                        firstNonBlank(anchor.attributes["data-poster"], anchor.attributes["data-image"], card.poster)
+                    )?.toString(),
+                    summary = firstNonBlank(anchor.attributes["data-summary"], anchor.attributes["data-description"], card.summary),
+                    releaseInfo = card.releaseInfo,
+                    castInfo = card.castInfo,
+                    categoryInfo = card.categoryInfo,
+                    updateInfo = card.updateInfo
+                )
+            }.distinctBy(VideoTitle::detailUrl)
+            if (titles.isNotEmpty()) return titles
+        }
+        return emptyList()
     }
 
     override suspend fun loadDetail(root: VideoSiteRoot, titleUrl: String): VideoTitleDetail? {
@@ -234,6 +237,18 @@ class DefaultVideoSiteAdapter(
         val separator = if (action.rawQuery.isNullOrEmpty()) "?" else "&"
         URI(action.toString() + separator + URLEncoder.encode(parameter, StandardCharsets.UTF_8.toString()) + "=" + encoded)
     }.getOrNull()
+
+    /**
+     * Some catalogue labels add a trailing venue word that is not part of the
+     * indexed title (for example, the site currently indexes 南部档案 rather
+     * than the user-facing 南部档案馆). Keep the exact query first, then make
+     * one conservative suffix retry only after the exact search returns no
+     * cards. Network failures still propagate from the first request.
+     */
+    private fun searchQueryCandidates(query: String): List<String> = buildList {
+        add(query)
+        if (query.length > 1 && query.endsWith("馆")) add(query.dropLast(1))
+    }.distinct()
 
     private fun isTitleMarker(attributes: Map<String, String>): Boolean =
         attributes.containsKey("data-video-title") || attributes.containsKey("data-title") ||
