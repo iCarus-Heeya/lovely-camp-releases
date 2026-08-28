@@ -337,8 +337,12 @@ data class VideoRequestDiagnostic(
     val displayText: String get() = "$method $safeUrl - $detail"
 }
 
+private const val VIDEO_DEBUG_BUILD_ID = "tlsdiag-20260829"
+
 fun videoDebugVersionLabel(versionName: String, versionCode: Long): String =
     "调试包 v$versionName ($versionCode)"
+
+fun videoDebugBuildIdLabel(): String = "诊断构建 $VIDEO_DEBUG_BUILD_ID"
 
 /**
  * Keeps diagnostics useful without copying playback credentials into logs or the debug clipboard.
