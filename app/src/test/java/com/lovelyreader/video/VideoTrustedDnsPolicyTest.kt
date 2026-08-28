@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import javax.net.ssl.SSLContext
 
 class VideoTrustedDnsPolicyTest {
     @Test
@@ -68,6 +69,37 @@ class VideoTrustedDnsPolicyTest {
         assertEquals(null, selection.fallbackReason)
         assertEquals(listOf("23.224.113.227"), selection.usableAddresses.map { it.hostAddress })
         assertEquals(1, selection.rejectedAddressCount)
+        assertTrue(selection.shouldPreferSystemAddresses)
+    }
+
+    @Test
+    fun `mixed system answer does not keep a public address that failed the bounded TCP probe`() {
+        val selection = selectReachableTrustedDnsAddresses(
+            host = "www.88ystv.com",
+            addresses = listOf(InetAddress.getByName("::1"), InetAddress.getByName("221.228.32.13")),
+            isReachable = { false }
+        )
+
+        assertTrue(selection.usableAddresses.isEmpty())
+        assertEquals(TrustedDnsFallbackReason.UNREACHABLE_SYSTEM_ANSWER, selection.fallbackReason)
+        assertEquals(2, selection.rejectedAddressCount)
+    }
+
+    @Test
+    fun `mixed system answer keeps only the public addresses that pass the bounded TCP probe`() {
+        val selection = selectReachableTrustedDnsAddresses(
+            host = "www.88ystv.com",
+            addresses = listOf(
+                InetAddress.getByName("::1"),
+                InetAddress.getByName("221.228.32.13"),
+                InetAddress.getByName("23.224.113.227")
+            ),
+            isReachable = { it.hostAddress == "23.224.113.227" }
+        )
+
+        assertEquals(listOf("23.224.113.227"), selection.usableAddresses.map { it.hostAddress })
+        assertEquals(null, selection.fallbackReason)
+        assertEquals(2, selection.rejectedAddressCount)
         assertTrue(selection.shouldPreferSystemAddresses)
     }
 
@@ -165,6 +197,16 @@ class VideoTrustedDnsPolicyTest {
         assertEquals("23.224.113.227", parseTrustedIpv4Address("23.224.113.227")?.hostAddress)
         assertEquals(null, parseTrustedIpv4Address("www.88ystv.com"))
         assertEquals(null, parseTrustedIpv4Address("256.1.1.1"))
+    }
+
+    @Test
+    fun `trusted target transport prefers TLS 1 2 for legacy provider compatibility`() {
+        val socket = SSLContext.getDefault().socketFactory.createSocket() as javax.net.ssl.SSLSocket
+
+        configureTrustedVideoTlsSocket(socket)
+
+        assertEquals(listOf("TLSv1.2"), socket.enabledProtocols.toList())
+        socket.close()
     }
 
     @Test

@@ -10,6 +10,7 @@ internal enum class DramaStatus {
 /** Distinguishes a transport/source failure from a successful empty result. */
 enum class DramaRequestError {
     Network,
+    TargetTls,
     Unavailable
 }
 
@@ -23,6 +24,7 @@ internal fun dramaStatusCopy(status: DramaStatus): String = when (status) {
 
 internal fun dramaRequestErrorCopy(error: DramaRequestError): String = when (error) {
     DramaRequestError.Network -> "片源网络暂时不可达，请重试"
+    DramaRequestError.TargetTls -> "片源服务器握手失败，可重试或切换片源"
     DramaRequestError.Unavailable -> "片源暂时无法读取，请重试"
 }
 

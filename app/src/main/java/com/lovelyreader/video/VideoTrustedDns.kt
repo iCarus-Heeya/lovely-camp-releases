@@ -18,9 +18,13 @@ import java.net.URLEncoder
 import java.net.UnknownHostException
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-enum class TrustedDnsFallbackReason { INVALID_SYSTEM_ANSWER }
+enum class TrustedDnsFallbackReason {
+    INVALID_SYSTEM_ANSWER,
+    UNREACHABLE_SYSTEM_ANSWER
+}
 
 private const val MAX_ADDRESS_ATTEMPTS = 4
 private const val TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS = 8_000
@@ -72,11 +76,27 @@ internal fun parseTrustedIpv4Address(raw: String): InetAddress? {
 }
 
 /**
+ * The provider's edge accepts TLS 1.2 but can abort a TLS 1.3 negotiation with
+ * `SSLProtocolException`. Browsers retry with a compatible protocol; the address-pinned fallback
+ * has no browser retry layer, so constrain only this fallback socket to TLS 1.2. Certificate
+ * verification and hostname/SNI handling remain unchanged.
+ */
+internal fun configureTrustedVideoTlsSocket(socket: java.net.Socket): java.net.Socket {
+    if (socket is SSLSocket) {
+        val supported = socket.supportedProtocols.toSet()
+        if ("TLSv1.2" in supported) {
+            socket.enabledProtocols = arrayOf("TLSv1.2")
+        }
+    }
+    return socket
+}
+
+/**
  * The system resolver may return a mixture of unusable and public addresses. Browsers normally
- * discard loopback/local answers and continue with the usable set, so the app must not trigger a
- * trusted-DNS lookup merely because one address in the answer is bad. IPv4 is ordered first as a
- * conservative choice for networks that advertise a broken IPv6 route. This is not a parallel
- * Happy Eyeballs race; it is a bounded, deterministic fallback.
+ * discard loopback/local answers and continue with the usable set. IPv4 is ordered first as a
+ * conservative choice for networks that advertise a broken IPv6 route. Mixed answers are
+ * additionally checked for TCP reachability before they are reused; this is not a parallel Happy
+ * Eyeballs race, but a bounded, deterministic fallback.
  */
 data class TrustedDnsAddressSelection(
     val usableAddresses: List<InetAddress>,
@@ -104,6 +124,33 @@ internal fun selectTrustedDnsAddresses(host: String, addresses: List<InetAddress
         usableAddresses = usable,
         rejectedAddressCount = distinctAddresses.size - usable.size,
         fallbackReason = if (usable.isEmpty()) TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER else null
+    )
+}
+
+/**
+ * Applies the bounded TCP reachability result to a system DNS answer. A public-looking address
+ * is not enough to be selected as a transport target: captive/poisoned Wi-Fi answers can still
+ * time out on port 443. The probe is deliberately supplied by the caller so the policy remains
+ * deterministic and unit-testable without opening sockets from JVM tests.
+ */
+internal fun selectReachableTrustedDnsAddresses(
+    host: String,
+    addresses: List<InetAddress>,
+    isReachable: (InetAddress) -> Boolean
+): TrustedDnsAddressSelection {
+    val base = selectTrustedDnsAddresses(host, addresses)
+    if (base.usableAddresses.isEmpty()) return base
+    val reachable = base.usableAddresses.filter(isReachable)
+    if (reachable.size == base.usableAddresses.size) return base
+    val distinct = addresses.distinctBy { it.hostAddress }
+    return TrustedDnsAddressSelection(
+        usableAddresses = reachable,
+        rejectedAddressCount = distinct.size - reachable.size,
+        fallbackReason = if (reachable.isEmpty()) {
+            TrustedDnsFallbackReason.UNREACHABLE_SYSTEM_ANSWER
+        } else {
+            null
+        }
     )
 }
 
@@ -249,7 +296,8 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
             TrustedAddressHttpsConnectionFactory(
                 "dns.alidns.com",
                 listOf(bootstrapAddress),
-                TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS
+                TRUSTED_DNS_CONNECT_TIMEOUT_MILLIS,
+                plainSocketFactory = ::createActiveNetworkSocket
             )(resolverUrl)
         },
         openHostnameConnection = { resolverUrl ->
@@ -268,7 +316,26 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
         val network = appContext.getSystemService(ConnectivityManager::class.java).activeNetwork
         val addresses = runCatching { network?.getAllByName(host)?.toList() ?: InetAddress.getAllByName(host).toList() }
             .getOrDefault(emptyList())
-        selectTrustedDnsAddresses(host, addresses)
+        val initial = selectTrustedDnsAddresses(host, addresses)
+        if (initial.usableAddresses.isEmpty() || initial.rejectedAddressCount == 0) {
+            return@withContext initial
+        }
+
+        // Only mixed answers need an active reachability check. Fully public answers stay on the
+        // platform hostname/TLS path, while a mixed answer must not pin a dead public address.
+        val reachable = selectReachableTrustedDnsAddresses(host, addresses) { address ->
+            runCatching {
+                val socket = network?.socketFactory?.createSocket() ?: Socket()
+                socket.use {
+                    it.connect(
+                        InetSocketAddress(address, 443),
+                        SYSTEM_PREFLIGHT_CONNECT_TIMEOUT_MILLIS
+                    )
+                }
+                true
+            }.getOrDefault(false)
+        }
+        reachable
     }
 
     override suspend fun get(url: String): String = withTrustedClient(url) { it.get(url) }
@@ -294,6 +361,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
             addresses = addresses,
             connectTimeoutMillis = TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS,
             readTimeoutMillis = TRUSTED_TARGET_READ_TIMEOUT_MILLIS,
+            plainSocketFactory = ::createActiveNetworkSocket,
             action = action
         )
     }
@@ -311,6 +379,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
             addresses = usableAddresses,
             connectTimeoutMillis = SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS,
             readTimeoutMillis = SYSTEM_TARGET_READ_TIMEOUT_MILLIS,
+            plainSocketFactory = ::createActiveNetworkSocket,
             action = action
         )
     }
@@ -320,6 +389,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
         addresses: List<InetAddress>,
         connectTimeoutMillis: Int,
         readTimeoutMillis: Int,
+        plainSocketFactory: () -> Socket,
         action: suspend (com.lovelyreader.source.HttpTextClient) -> T
     ): T {
         val host = URI(url).host ?: throw UnknownHostException("无效片源主机")
@@ -331,7 +401,12 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
             minimumIntervalMillis = 500,
             connectTimeoutMillis = connectTimeoutMillis,
             readTimeoutMillis = readTimeoutMillis,
-            connectionFactory = TrustedAddressHttpsConnectionFactory(host, orderedAddresses, connectTimeoutMillis),
+            connectionFactory = TrustedAddressHttpsConnectionFactory(
+                hostname = host,
+                addresses = orderedAddresses,
+                connectTimeoutMillis = connectTimeoutMillis,
+                plainSocketFactory = plainSocketFactory
+            ),
             responseInspector = ::inspectVideoHttpResponse
         )
         return try {
@@ -344,6 +419,7 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
     }
 
     private companion object {
+        const val SYSTEM_PREFLIGHT_CONNECT_TIMEOUT_MILLIS = 1_500
         const val SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS = 4_000
         const val SYSTEM_TARGET_READ_TIMEOUT_MILLIS = 30_000
         const val TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS = 20_000
@@ -356,6 +432,12 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
             addressCache.put(host, resolved)
         }
     }
+
+    /** Bind fallback sockets to the same active Android Network used for DNS preflight. */
+    private fun createActiveNetworkSocket(): Socket {
+        val manager = appContext.getSystemService(ConnectivityManager::class.java)
+        return manager?.activeNetwork?.socketFactory?.createSocket() ?: Socket()
+    }
 }
 
 /**
@@ -365,7 +447,8 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
 private class TrustedAddressHttpsConnectionFactory(
     private val hostname: String,
     private val addresses: List<InetAddress>,
-    private val connectTimeoutMillis: Int
+    private val connectTimeoutMillis: Int,
+    private val plainSocketFactory: () -> Socket = { Socket() }
 ) : (URL) -> java.net.HttpURLConnection {
     override fun invoke(url: URL): java.net.HttpURLConnection {
         requireTrustedVideoHttpsUrl(url.toString())
@@ -377,7 +460,8 @@ private class TrustedAddressHttpsConnectionFactory(
                 delegate = HttpsURLConnection.getDefaultSSLSocketFactory(),
                 hostname = hostname,
                 addresses = addresses,
-                connectTimeoutMillis = connectTimeoutMillis
+                connectTimeoutMillis = connectTimeoutMillis,
+                plainSocketFactory = plainSocketFactory
             )
             val platformVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
             connection.hostnameVerifier = HostnameVerifier { _, session ->
@@ -392,11 +476,18 @@ private class AddressBoundSniSocketFactory(
     private val delegate: SSLSocketFactory,
     private val hostname: String,
     private val addresses: List<InetAddress>,
-    private val connectTimeoutMillis: Int
+    private val connectTimeoutMillis: Int,
+    private val plainSocketFactory: () -> Socket
 ) : SSLSocketFactory() {
     override fun getDefaultCipherSuites(): Array<String> = delegate.defaultCipherSuites
     override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
-    override fun createSocket(): Socket = delegate.createSocket()
+    /**
+     * HttpsURLConnection implementations are allowed to use the no-arg factory method and
+     * connect the returned socket later. Returning an unbound delegate socket here would make
+     * that later connect resolve the poisoned transport URL again (and lose the trusted SNI
+     * route). HTTPS video URLs are restricted to the default port, so bind this path eagerly.
+     */
+    override fun createSocket(): Socket = connectTrusted(443)
     override fun createSocket(host: String, port: Int): Socket = connectTrusted(port)
     override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = connectTrusted(port)
     override fun createSocket(host: InetAddress, port: Int): Socket = connectTrusted(port)
@@ -409,11 +500,13 @@ private class AddressBoundSniSocketFactory(
     private fun connectTrusted(port: Int): Socket {
         var lastError: Throwable? = null
         addresses.take(MAX_ADDRESS_ATTEMPTS).forEach { address ->
-            val plain = Socket()
+            val plain = plainSocketFactory()
             var handedOff = false
             try {
                 plain.connect(InetSocketAddress(address, port), connectTimeoutMillis)
-                val secure = delegate.createSocket(plain, hostname, port, true)
+                val secure = configureTrustedVideoTlsSocket(
+                    delegate.createSocket(plain, hostname, port, true)
+                )
                 handedOff = true
                 return secure
             } catch (error: Throwable) {

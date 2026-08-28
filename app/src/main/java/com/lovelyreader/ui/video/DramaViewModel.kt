@@ -57,8 +57,12 @@ private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T
     Result.failure(error)
 }
 
-private fun classifyDramaRequestError(error: Throwable): DramaRequestError =
-    if (isTransientVideoNetworkFailure(error)) DramaRequestError.Network else DramaRequestError.Unavailable
+internal fun classifyDramaRequestError(error: Throwable): DramaRequestError = when {
+    generateSequence(error) { it.cause }.any { it is javax.net.ssl.SSLException } ->
+        DramaRequestError.TargetTls
+    isTransientVideoNetworkFailure(error) -> DramaRequestError.Network
+    else -> DramaRequestError.Unavailable
+}
 
 class VideoLibraryDramaStore(
     private val repository: VideoLibraryRepository

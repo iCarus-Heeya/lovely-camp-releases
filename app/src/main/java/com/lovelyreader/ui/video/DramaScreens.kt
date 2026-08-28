@@ -1090,6 +1090,7 @@ fun DramaPlayerScreen(
                 usesSitePlayer && playbackUrl != null -> SitePlayerWebView(
                     episodeUrl = playbackUrl,
                     onMediaDiscovered = { candidate -> discoveredMedia = candidate },
+                    onBack = onBack,
                     modifier = Modifier.fillMaxSize()
                 )
                 player != null -> NativePlayerSurface(
@@ -1425,6 +1426,7 @@ private fun formatVideoTime(milliseconds: Long): String {
 private fun SitePlayerWebView(
     episodeUrl: String,
     onMediaDiscovered: (com.lovelyreader.video.VideoMediaLink) -> Unit,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var retryKey by remember(episodeUrl) { mutableStateOf(0) }
@@ -1513,15 +1515,21 @@ private fun SitePlayerWebView(
     if (sitePlayerContentVisibility(entryPageFinished, playerReady, mainFrameFailed, providerFailed) == SitePlayerContentVisibility.Failed) {
         SoftPanel(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text("播放器连接失败", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
-            Text("当前网络没有连接到片源播放器。请重试，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
-            Button(onClick = { retryKey++ }) { Text("重新连接") }
+            Text("当前片源的播放器资源没有完成连接。请重试当前片源，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { retryKey++ }) { Text("重新连接") }
+                OutlinedButton(onClick = onBack) { Text("返回选集") }
+            }
         }
     }
     if (loadTimedOut && !playerReady && !providerFailed && !mainFrameFailed) {
         SoftPanel(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text("播放器加载较慢", style = MaterialTheme.typography.titleMedium, color = appColors().cocoa)
             Text("片源页面超过 15 秒仍未响应。可以重新连接，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
-            Button(onClick = { retryKey++ }) { Text("重新连接") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { retryKey++ }) { Text("重新连接") }
+                OutlinedButton(onClick = onBack) { Text("返回选集") }
+            }
         }
     }
     }
@@ -1595,7 +1603,10 @@ private class SitePlayerWebViewClient(
         error: android.webkit.WebResourceError
     ) {
         super.onReceivedError(view, request, error)
-        if (isProviderFrameRequest(request.url.toString(), episodeUrl)) onProviderFrameFailed()
+        val resourceUrl = request.url.toString()
+        if (isProviderFrameRequest(resourceUrl, episodeUrl) ||
+            isProviderResourceRequest(resourceUrl, episodeUrl, confirmedPlayerUrl())
+        ) onProviderFrameFailed()
         if (request.isForMainFrame) onMainFrameFailed()
     }
 
@@ -1605,7 +1616,11 @@ private class SitePlayerWebViewClient(
         errorResponse: android.webkit.WebResourceResponse
     ) {
         super.onReceivedHttpError(view, request, errorResponse)
-        if (errorResponse.statusCode >= 400 && isProviderFrameRequest(request.url.toString(), episodeUrl)) {
+        val resourceUrl = request.url.toString()
+        if (errorResponse.statusCode >= 400 &&
+            (isProviderFrameRequest(resourceUrl, episodeUrl) ||
+                isProviderResourceRequest(resourceUrl, episodeUrl, confirmedPlayerUrl()))
+        ) {
             onProviderFrameFailed()
         }
         if (request.isForMainFrame && errorResponse.statusCode >= 400) onMainFrameFailed()

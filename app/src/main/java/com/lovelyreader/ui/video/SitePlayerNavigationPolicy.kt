@@ -58,6 +58,21 @@ internal fun isProviderFrameRequest(candidate: String, episodePageUrl: String): 
         .any { it.substringBefore('=').equals("url", ignoreCase = true) }
 }
 
+/** Provider scripts/media often keep the iframe origin but no longer carry its opaque `url`. */
+internal fun isProviderResourceRequest(
+    candidate: String,
+    episodePageUrl: String,
+    confirmedPlayerUrl: String?
+): Boolean {
+    val provider = visibleProviderPlayerUrl(confirmedPlayerUrl, episodePageUrl)?.let {
+        runCatching { URI(it) }.getOrNull()
+    } ?: return false
+    val resource = runCatching { URI(candidate) }.getOrNull() ?: return false
+    return resource.scheme.equals(provider.scheme, ignoreCase = true) &&
+        resource.host.equals(provider.host, ignoreCase = true) &&
+        resource.port == provider.port
+}
+
 /** The provider frame relies on the site page's browsing context and referrer. */
 internal fun shouldNavigateToProviderFrame(): Boolean = false
 
