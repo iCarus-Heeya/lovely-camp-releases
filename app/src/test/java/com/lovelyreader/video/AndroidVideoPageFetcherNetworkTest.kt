@@ -23,6 +23,12 @@ class AndroidVideoPageFetcherNetworkTest {
         fallbackReason = TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER
     )
 
+    private val unreachableMixedAnswer = TrustedDnsAddressSelection(
+        usableAddresses = emptyList(),
+        rejectedAddressCount = 2,
+        fallbackReason = TrustedDnsFallbackReason.UNREACHABLE_SYSTEM_ANSWER
+    )
+
     private val allUsableAnswer = TrustedDnsAddressSelection(
         usableAddresses = listOf(InetAddress.getByName("23.224.113.227")),
         rejectedAddressCount = 0,
@@ -126,6 +132,23 @@ class AndroidVideoPageFetcherNetworkTest {
         assertTrue(fetcher.get("https://www.88ystv.com/").contains("<form"))
         assertEquals(0, fallback.systemGetCalls)
         assertEquals(1, fallback.trustedGetCalls)
+    }
+
+    @Test
+    fun `unreachable mixed system addresses enter trusted DNS without retrying the timed out route`() = runTest {
+        val fallback = FakeTrustedVideoDnsFallback(
+            selection = unreachableMixedAnswer,
+            trustedGetResult = { "<html><form></form></html>" }
+        )
+        val fetcher = AndroidVideoPageFetcher(
+            client = unusableDefaultClient(),
+            trustedDnsFallback = fallback
+        )
+
+        assertTrue(fetcher.get("https://www.88ystv.com/").contains("<form"))
+        assertEquals(0, fallback.systemGetCalls)
+        assertEquals(1, fallback.trustedGetCalls)
+        assertTrue(fetcher.diagnostics().any { it.detail.contains("地址均不可达") })
     }
 
     private fun unusableDefaultClient() = HttpTextClient(

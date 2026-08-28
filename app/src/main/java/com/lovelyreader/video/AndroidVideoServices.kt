@@ -186,7 +186,13 @@ class AndroidVideoPageFetcher(
         }
 
         if (preflight?.fallbackReason != null) {
-            return fetchTrustedFallback("系统 DNS 未返回可用公网地址，正在使用可信 DNS 回退")
+            val reason = when (preflight.fallbackReason) {
+                TrustedDnsFallbackReason.UNREACHABLE_SYSTEM_ANSWER ->
+                    "系统 DNS 地址均不可达，正在使用可信 DNS 回退"
+                TrustedDnsFallbackReason.INVALID_SYSTEM_ANSWER ->
+                    "系统 DNS 未返回可用公网地址，正在使用可信 DNS 回退"
+            }
+            return fetchTrustedFallback(reason)
         }
 
         if (preflight?.usableAddresses?.isNotEmpty() == true && preflight.rejectedAddressCount == 0) {

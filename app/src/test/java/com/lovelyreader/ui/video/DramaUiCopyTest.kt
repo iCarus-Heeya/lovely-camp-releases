@@ -3,6 +3,8 @@ package com.lovelyreader.ui.video
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import javax.net.ssl.SSLProtocolException
+import com.lovelyreader.video.TrustedVideoTargetException
 
 class DramaUiCopyTest {
     @Test
@@ -26,6 +28,16 @@ class DramaUiCopyTest {
                 message.any { it in 'A'..'Z' || it in 'a'..'z' }
             )
         }
+    }
+
+    @Test
+    fun targetTlsFailureGetsAnActionableChineseMessage() {
+        val error = classifyDramaRequestError(
+            TrustedVideoTargetException("target", SSLProtocolException("handshake_failure"))
+        )
+
+        assertEquals(DramaRequestError.TargetTls, error)
+        assertEquals("片源服务器握手失败，可重试或切换片源", dramaRequestErrorCopy(error))
     }
 
     @Test

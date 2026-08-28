@@ -104,6 +104,17 @@ class SitePlayerNavigationPolicyTest {
     }
 
     @Test
+    fun `recognizes same-origin provider subresources after the frame is confirmed`() {
+        val episode = "https://www.88ystv.com/vod-play-id-275962-src-1-num-1.html"
+        val provider = "https://zj.jsjinfu.com:8443?url=opaque"
+
+        assertTrue(isProviderResourceRequest("https://zj.jsjinfu.com:8443/player.js", episode, provider))
+        assertTrue(isProviderResourceRequest("https://zj.jsjinfu.com:8443/media/segment.ts", episode, provider))
+        assertFalse(isProviderResourceRequest("https://cdn.example/player.js", episode, provider))
+        assertFalse(isProviderResourceRequest("https://zj.jsjinfu.com/player.js", episode, provider))
+    }
+
+    @Test
     fun `keeps provider playback inside the site page to preserve its authorization context`() {
         assertFalse(shouldNavigateToProviderFrame())
     }
