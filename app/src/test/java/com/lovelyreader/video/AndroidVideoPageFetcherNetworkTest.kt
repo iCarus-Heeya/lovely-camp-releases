@@ -5,6 +5,7 @@ import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.SocketTimeoutException
+import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -99,6 +100,24 @@ class AndroidVideoPageFetcherNetworkTest {
         assertEquals(1, fallback.systemGetCalls)
         assertEquals(1, fallback.trustedGetCalls)
         assertTrue(fetcher.diagnostics().any { it.detail.contains("有效系统地址请求失败") })
+    }
+
+    @Test
+    fun `system address TLS handshake failure falls back to trusted DNS`() = runTest {
+        val fallback = FakeTrustedVideoDnsFallback(
+            selection = mixedSystemAnswer,
+            systemGetResult = { throw SSLHandshakeException("target certificate or protocol") },
+            trustedGetResult = { "<html><form></form></html>" }
+        )
+        val fetcher = AndroidVideoPageFetcher(
+            client = unusableDefaultClient(),
+            trustedDnsFallback = fallback
+        )
+
+        assertTrue(fetcher.get("https://www.88ystv.com/").contains("<form"))
+        assertEquals(1, fallback.systemGetCalls)
+        assertEquals(1, fallback.trustedGetCalls)
+        assertTrue(fetcher.diagnostics().any { it.detail.contains("SSLHandshakeException") })
     }
 
     @Test
