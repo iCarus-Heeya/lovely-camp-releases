@@ -1,6 +1,7 @@
 package com.lovelyreader.video
 
 import java.net.SocketTimeoutException
+import java.security.cert.CertPathValidatorException
 import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
@@ -52,5 +53,29 @@ class VideoFailureDiagnosticsTest {
 
         assertTrue(inspected)
         assertTrue(diagnostics.snapshot().any { it.detail.contains("SSLHandshakeException") })
+    }
+
+    @Test
+    fun `TLS diagnostics retain only the root cause type for actionable debugging`() = runTest {
+        val diagnostics = VideoRequestDiagnostics()
+        val probe = object : VideoHostConnectivityProbe {
+            override suspend fun inspect(url: String): List<String> = emptyList()
+        }
+        val error = SSLHandshakeException("certificate details must not be logged").apply {
+            initCause(CertPathValidatorException("certificate details must not be logged"))
+        }
+
+        recordVideoRequestFailureDiagnostics(
+            diagnostics = diagnostics,
+            method = "GET",
+            url = "https://www.88ystv.com/",
+            error = error,
+            probe = probe
+        )
+
+        val detail = diagnostics.snapshot().single().detail
+        assertTrue(detail.contains("请求失败：SSLHandshakeException"))
+        assertTrue(detail.contains("根因：CertPathValidatorException"))
+        assertTrue(!detail.contains("certificate details"))
     }
 }
