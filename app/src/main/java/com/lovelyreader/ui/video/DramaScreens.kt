@@ -111,6 +111,7 @@ import com.lovelyreader.video.VideoTitle
 import com.lovelyreader.video.VideoPlaybackMode
 import com.lovelyreader.video.VideoRequestDiagnostic
 import com.lovelyreader.video.videoDebugVersionLabel
+import com.lovelyreader.video.videoDebugBuildIdLabel
 import com.lovelyreader.video.castMediaTarget
 import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.InkWashBackground
@@ -475,6 +476,7 @@ private fun VideoDiagnosticsDialog(
             Column {
                 Text("片源调试")
                 Text(versionLabel, style = MaterialTheme.typography.bodySmall)
+                Text(videoDebugBuildIdLabel(), style = MaterialTheme.typography.bodySmall)
             }
         },
         text = {
