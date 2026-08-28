@@ -315,7 +315,14 @@ internal suspend fun recordVideoRequestFailureDiagnostics(
     error: Throwable,
     probe: VideoHostConnectivityProbe
 ) {
-    diagnostics.record(method, url, "请求失败：${error.javaClass.simpleName ?: "未知异常"}")
+    val type = error.javaClass.simpleName ?: "未知异常"
+    val rootType = trustedVideoFailureType(error)
+    val failureLabel = if (rootType != type) {
+        "请求失败：$type（根因：$rootType）"
+    } else {
+        "请求失败：$type"
+    }
+    diagnostics.record(method, url, failureLabel)
     if (isTransientVideoNetworkFailure(error)) {
         probe.inspect(url).forEach { detail -> diagnostics.record("网络检测", url, detail) }
     }
