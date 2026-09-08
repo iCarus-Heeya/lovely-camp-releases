@@ -42,6 +42,7 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[::FFFF:7f00:1]/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[0:0:0:0:0:ffff:7f00:1]/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://10.65536/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[192.0.2.1::]/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[2001:4860:4860::8888]/poster.jpg"), now).isSuccess)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[2001:db8::1]/poster.jpg"), now).isFailure)
     }

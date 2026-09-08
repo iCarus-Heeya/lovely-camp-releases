@@ -95,6 +95,7 @@ private fun isPublicHost(host: String): Boolean {
         }
         val left = expand(if (halves[0].isEmpty()) emptyList() else halves[0].split(':')) ?: return false
         val right = expand(if (halves.size == 2 && halves[1].isNotEmpty()) halves[1].split(':') else emptyList()) ?: return false
+        if (halves.size == 2 && halves[0].contains('.')) return false
         val rawGroups = (if (halves[0].isEmpty()) emptyList() else halves[0].split(':')) + (if (halves.size == 2 && halves[1].isNotEmpty()) halves[1].split(':') else emptyList())
         if (rawGroups.withIndex().any { it.value.contains('.') && it.index != rawGroups.lastIndex }) return false
         val missing = 8 - left.size - right.size
