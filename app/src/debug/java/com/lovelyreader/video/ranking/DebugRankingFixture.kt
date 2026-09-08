@@ -43,6 +43,10 @@ object DebugRankingFixture {
         nowMillis: Long = DEFAULT_NOW_MILLIS
     ): Result<RankingSnapshot> = parseRankingSnapshot(readScenario(context, scenarioId), nowMillis)
 
+    /** Parses the same declared dimensions used by the capability-first UI flow. */
+    fun parseCapabilities(context: Context): Result<RankingCapabilities> =
+        parseRankingCapabilities(catalog(context).getJSONObject("capabilities").toString())
+
     /**
      * Provides a repository-shaped adapter for future Debug UI tests. It only
      * serves the selected scenario and rejects requests whose filters do not
@@ -52,7 +56,10 @@ object DebugRankingFixture {
         context: Context,
         scenarioId: String = DEFAULT_SCENARIO,
         nowMillis: Long = DEFAULT_NOW_MILLIS
-    ): RankingRepository = DebugFixtureRepository(parseScenario(context, scenarioId, nowMillis))
+    ): RankingRepository = DebugFixtureRepository(
+        parseCapabilities(context),
+        parseScenario(context, scenarioId, nowMillis)
+    )
 
     private fun catalog(context: Context): JSONObject {
         val root = JSONObject(readCatalog(context))
@@ -72,8 +79,11 @@ object DebugRankingFixture {
 }
 
 private class DebugFixtureRepository(
+    private val capabilities: Result<RankingCapabilities>,
     private val parsed: Result<RankingSnapshot>
 ) : RankingRepository {
+    override suspend fun loadCapabilities(): Result<RankingCapabilities> = capabilities
+
     override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult {
         val snapshot = parsed.getOrNull()
         if (snapshot == null) {

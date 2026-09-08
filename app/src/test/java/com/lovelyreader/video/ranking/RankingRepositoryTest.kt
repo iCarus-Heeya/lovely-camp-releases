@@ -31,6 +31,32 @@ class RankingRepositoryTest {
     }
 
     @Test
+    fun `fresh cache with an opaque next page is refreshed instead of advertised as complete`() = runTest {
+        val cached = snapshot(expiresAt = 2_000, staleUntil = 3_000).copy(nextCursor = "opaque-next")
+        val cache = FakeCache(CachedRanking(cached, 900, "etag-1", hasMorePages = true))
+        val transport = QueueTransport(response(200, validJson()))
+        val result = DefaultRankingRepository(transport, cache, clockMillis = { 1_000 }).load(request)
+
+        assertEquals(RankingDataSource.NETWORK, result.source)
+        assertEquals(1, transport.calls)
+    }
+
+    @Test
+    fun `cursor pages stay in memory and are never persisted as cache entries`() = runTest {
+        val cache = FakeCache()
+        val cursorRequest = request.copy(cursor = "opaque-next")
+        val cursorBody = validJson().replace("\"cursor\":null", "\"cursor\":\"opaque-next\"")
+        val result = DefaultRankingRepository(
+            QueueTransport(response(200, cursorBody)),
+            cache,
+            clockMillis = { 1_000 }
+        ).load(cursorRequest)
+
+        assertEquals(RankingDataSource.NETWORK, result.source)
+        assertNull(cache.value)
+    }
+
+    @Test
     fun `network success writes snapshot and etag to cache`() = runTest {
         val cache = FakeCache()
         val repository = DefaultRankingRepository(

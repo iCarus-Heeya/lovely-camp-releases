@@ -220,6 +220,41 @@ class RankingViewModelTest {
     }
 
     @Test
+    fun `changing a declared filter keeps the previous snapshot visible while refreshing`() = runTest {
+        val initial = RankingLoadResult(snapshot(items = listOf(entry("old"))), RankingDataSource.NETWORK)
+        val updated = RankingLoadResult(snapshot(mediaType = RankingMediaType.SERIES, items = listOf(entry("new"))), RankingDataSource.NETWORK)
+        val viewModel = RankingViewModel(QueueRepository(initial, updated), this)
+
+        viewModel.refresh(request())
+        advanceUntilIdle()
+        viewModel.refresh(request().copy(mediaType = RankingMediaType.SERIES))
+
+        val refreshing = viewModel.state.value as RankingUiState.Refreshing
+        assertEquals(listOf("old"), refreshing.items.map(RankingEntry::canonicalId))
+        assertEquals(RankingMediaType.SERIES, refreshing.request.mediaType)
+        advanceUntilIdle()
+        assertEquals(listOf("new"), (viewModel.state.value as RankingUiState.Content).items.map(RankingEntry::canonicalId))
+    }
+
+    @Test
+    fun `reentering rankings refreshes in place instead of clearing the previous snapshot`() = runTest {
+        val repository = QueueRepository(
+            RankingLoadResult(snapshot(items = listOf(entry("old"))), RankingDataSource.NETWORK),
+            RankingLoadResult(snapshot(items = listOf(entry("new"))), RankingDataSource.NETWORK)
+        )
+        val viewModel = RankingViewModel(repository, this)
+
+        viewModel.refresh(request())
+        advanceUntilIdle()
+        viewModel.refreshInitial()
+
+        val refreshing = viewModel.state.value as RankingUiState.Refreshing
+        assertEquals(listOf("old"), refreshing.items.map(RankingEntry::canonicalId))
+        advanceUntilIdle()
+        assertEquals(listOf("new"), (viewModel.state.value as RankingUiState.Content).items.map(RankingEntry::canonicalId))
+    }
+
+    @Test
     fun `rapid filter change ignores non cooperative old response`() = runTest {
         val oldResult = CompletableDeferred<RankingLoadResult>()
         val newResult = CompletableDeferred<RankingLoadResult>()

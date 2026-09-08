@@ -58,15 +58,57 @@ private fun capabilityYears(root: JSONObject): List<Int> {
 private fun coverage(o: JSONObject): RankingCoverage {
     val count = intNumber(o, "sourceCount", 0)
     val ids = strings(o.optJSONArray("coveredSourceIds"), "coveredSourceId")
-    require(count == ids.size || count > ids.size) { "invalid coverage" }
+    require(ids.distinct().size == ids.size) { "duplicate covered source id" }
+    require(count >= ids.size) { "invalid coverage" }
     val complete = if (!o.has("complete")) false else o.get("complete") as? Boolean ?: error("complete must be boolean")
+    if (complete) require(count == ids.size) { "complete coverage must list every source" }
     return RankingCoverage(count, ids, complete)
 }
-private fun ratings(a: JSONArray?): List<SourceRating> = (0 until (a?.length() ?: 0)).map {
-    val o = a!!.getJSONObject(it); SourceRating(requiredText(o, "sourceId"), if (o.isNull("value")) null else number(o, "value"), if (o.isNull("scaleMax")) null else number(o, "scaleMax"), if (o.isNull("voteCount")) null else intNumber(o, "voteCount", 0))
+private fun aggregateScore(o: JSONObject, name: String): Double? {
+    if (!o.has(name) || o.isNull(name)) return null
+    return number(o, name).also { value ->
+        require(value in RANKING_AGGREGATE_SCORE_MIN..RANKING_AGGREGATE_SCORE_MAX) { "$name out of range" }
+    }
 }
-private fun ranks(a: JSONArray?): List<SourceRank> = (0 until (a?.length() ?: 0)).map {
-    val o = a!!.getJSONObject(it); SourceRank(requiredText(o, "sourceId"), if (o.isNull("rank")) null else rank(intNumber(o, "rank", 1), "rank"), if (o.isNull("previousRank")) null else rank(intNumber(o, "previousRank", 1), "previousRank"), if (o.isNull("rankDelta")) null else intNumber(o, "rankDelta"), if (!o.has("isNew")) false else o.get("isNew") as? Boolean ?: error("isNew must be boolean"))
+
+private fun ratings(a: JSONArray?): List<SourceRating> {
+    val ids = mutableSetOf<String>()
+    return (0 until (a?.length() ?: 0)).map {
+        val o = a!!.getJSONObject(it)
+        val sourceId = requiredText(o, "sourceId")
+        require(ids.add(sourceId)) { "duplicate source rating" }
+        val value = if (o.isNull("value")) null else number(o, "value")
+        val scaleMax = if (o.isNull("scaleMax")) null else number(o, "scaleMax").also { require(it > 0.0) { "scaleMax must be positive" } }
+        if (value != null) {
+            val max = scaleMax ?: RANKING_AGGREGATE_SCORE_MAX
+            require(value in RANKING_AGGREGATE_SCORE_MIN..max) { "rating exceeds scale" }
+        }
+        SourceRating(sourceId, value, scaleMax, if (o.isNull("voteCount")) null else intNumber(o, "voteCount", 0))
+    }
+}
+
+private fun ranks(a: JSONArray?): List<SourceRank> {
+    val ids = mutableSetOf<String>()
+    return (0 until (a?.length() ?: 0)).map {
+        val o = a!!.getJSONObject(it)
+        val sourceId = requiredText(o, "sourceId")
+        require(ids.add(sourceId)) { "duplicate source rank" }
+        val currentRank = if (o.isNull("rank")) null else rank(intNumber(o, "rank", 1), "rank")
+        val previousRank = if (o.isNull("previousRank")) null else rank(intNumber(o, "previousRank", 1), "previousRank")
+        val rankDelta = if (o.isNull("rankDelta")) null else intNumber(o, "rankDelta")
+        val isNew = if (o.has("isNew")) o.get("isNew") as? Boolean ?: error("isNew must be boolean") else previousRank == null
+        if (isNew) {
+            require(previousRank == null && rankDelta == null) { "new rank cannot have history" }
+        } else {
+            require(previousRank != null) { "non-new rank must have previousRank" }
+        }
+        if (rankDelta != null) {
+            require(currentRank != null && previousRank != null) { "rankDelta requires current and previous rank" }
+            require(rankDelta == previousRank - currentRank) { "rankDelta is inconsistent" }
+        }
+        if (previousRank != null) require(currentRank != null) { "previousRank requires current rank" }
+        SourceRank(sourceId, currentRank, previousRank, rankDelta, isNew)
+    }
 }
 
 fun validateRankingRequest(request: RankingRequest): Result<RankingRequest> = runCatching {
@@ -127,7 +169,22 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
     val availability = runCatching { RankingAvailability.valueOf(root.optString("availability")) }.getOrElse { error("invalid availability") }
     val cov = coverage(obj(root, "coverage"))
     val statusesJson = root.get("sourceStatuses") as? JSONArray ?: error("missing sourceStatuses")
-    val statuses = (0 until statusesJson.length()).map { val s = statusesJson.getJSONObject(it); val errorCode = optionalText(s, "errorCode")?.let { code -> runCatching { RankingErrorCode.valueOf(code) }.getOrNull() }; RankingSourceStatus(requiredText(s, "sourceId"), runCatching { RankingSourceHealth.valueOf(requiredText(s, "status")) }.getOrElse { error("invalid source status") }, errorCode) }
+    val statusIds = mutableSetOf<String>()
+    val statuses = (0 until statusesJson.length()).map {
+        val s = statusesJson.getJSONObject(it)
+        val sourceId = requiredText(s, "sourceId")
+        require(statusIds.add(sourceId)) { "duplicate source status" }
+        val errorCode = optionalText(s, "errorCode")?.let { code ->
+            runCatching { RankingErrorCode.valueOf(code) }.getOrElse { error("invalid errorCode") }
+        }
+        RankingSourceStatus(
+            sourceId,
+            runCatching { RankingSourceHealth.valueOf(requiredText(s, "status")) }.getOrElse { error("invalid source status") },
+            errorCode
+        )
+    }
+    require(cov.coveredSourceIds.all(statusIds::contains)) { "coverage source has no status" }
+    require(statusIds.size <= cov.sourceCount) { "too many source statuses" }
     val itemsJson = root.optJSONArray("items") ?: error("missing items")
     val seenIds = mutableSetOf<String>(); val seenRanks = mutableSetOf<Int>(); val items = (0 until itemsJson.length()).map { i ->
         val e = itemsJson.getJSONObject(i); val id = requiredText(e, "canonicalId"); require(seenIds.add(id)) { "duplicate canonicalId" }
@@ -136,9 +193,27 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         // The shared source-site poster loader is not a ranking-approved DNS-bound transport.
         // Keep valid metadata but emit placeholders until that independent boundary exists.
         // Disk cache restores use this parser too, so older named URLs cannot bypass the gate.
-        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), null, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else number(e, "aggregateScore"), ratings(array(e, "sourceRatings")), ranks(array(e, "sourceRanks")), coverage(obj(e, "coverage")), requiredText(e, "searchTitle"))
+        val itemCoverage = coverage(obj(e, "coverage"))
+        require(itemCoverage.sourceCount <= cov.sourceCount) { "item coverage exceeds snapshot source count" }
+        require(itemCoverage.coveredSourceIds.all(cov.coveredSourceIds::contains)) { "item coverage exceeds snapshot coverage" }
+        val itemRatings = ratings(array(e, "sourceRatings"))
+        val itemRanks = ranks(array(e, "sourceRanks"))
+        require(itemRatings.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rating source is not covered" }
+        require(itemRanks.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rank source is not covered" }
+        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), null, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else aggregateScore(e, "aggregateScore"), itemRatings, itemRanks, itemCoverage, requiredText(e, "searchTitle"))
     }
-    RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"))
+    val methodologyVersion = optionalText(root, "methodologyVersion")
+    val identityMapVersion = optionalText(root, "identityMapVersion")
+    if (items.any { it.aggregateScore != null }) {
+        require(!methodologyVersion.isNullOrBlank()) { "aggregate score requires methodologyVersion" }
+        require(!identityMapVersion.isNullOrBlank()) { "aggregate score requires identityMapVersion" }
+    }
+    when (freshness) {
+        RankingFreshness.FRESH -> require(nowMillis < expires.epochMillis) { "freshness is inconsistent" }
+        RankingFreshness.STALE -> require(nowMillis >= expires.epochMillis && nowMillis <= stale.epochMillis) { "freshness is inconsistent" }
+        RankingFreshness.EXPIRED -> require(nowMillis > stale.epochMillis) { "freshness is inconsistent" }
+    }
+    RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"), methodologyVersion, identityMapVersion)
 }
 
 private fun isPublicHost(host: String): Boolean {

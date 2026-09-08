@@ -37,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -54,6 +57,7 @@ import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.video.DramaPoster
 import com.lovelyreader.video.ranking.RankingBoardOption
+import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingEntry
 import com.lovelyreader.video.ranking.RankingError
 import com.lovelyreader.video.ranking.RankingFailureKind
@@ -91,6 +95,7 @@ fun RankingScreen(
     val rankingListState = listState ?: fallbackListState
     val request = state.requestOrNull()
     val colors = appColors()
+    var showMoreFilters by rememberSaveable { mutableStateOf(false) }
 
     InkWashBackground(modifier.fillMaxSize()) {
         LazyColumn(
@@ -146,6 +151,11 @@ fun RankingScreen(
             val capabilities = state.capabilities
             val supportedBoards = capabilities.normalizedBoards()
             val supportedMediaTypes = capabilities.normalizedMediaTypes()
+            val supportedPeriods = capabilities.normalizedPeriods()
+            val supportedRegions = capabilities.normalizedRegions()
+            val supportedYears = capabilities.normalizedYears()
+            val supportedGenres = capabilities.normalizedGenres()
+            val supportedLanguages = capabilities.normalizedLanguages()
             if (state !is RankingUiState.Loading && capabilities.canLoadRanking && request != null) {
                 val selectedRequest = request
                 if (supportedBoards.isNotEmpty()) item {
@@ -164,51 +174,74 @@ fun RankingScreen(
                         onSelected = { media -> onRequest(selectedRequest.copy(mediaType = media, cursor = null)) }
                     )
                 }
-                if (capabilities.normalizedPeriods().isNotEmpty()) item {
+                if (supportedPeriods.isNotEmpty()) item {
                     RankingNullableFilterRow(
                         title = "时间窗",
-                        options = capabilities.normalizedPeriods(),
+                        options = supportedPeriods,
                         selectedId = selectedRequest.period,
                         onSelected = { period -> onRequest(selectedRequest.copy(period = period, cursor = null)) },
                         testTagPrefix = "ranking-period"
                     )
                 }
-                if (capabilities.normalizedRegions().isNotEmpty()) item {
-                    RankingNullableFilterRow(
-                        title = "国家/地区",
-                        options = capabilities.normalizedRegions(),
-                        selectedId = selectedRequest.region,
-                        onSelected = { region -> onRequest(selectedRequest.copy(region = region, cursor = null)) },
-                        testTagPrefix = "ranking-region"
+                val hasMoreFilters = supportedRegions.isNotEmpty() || supportedYears.isNotEmpty() ||
+                    supportedGenres.isNotEmpty() || supportedLanguages.isNotEmpty()
+                if (hasMoreFilters) item {
+                    RankingMoreFiltersToggle(
+                        expanded = showMoreFilters,
+                        onToggle = { showMoreFilters = !showMoreFilters }
                     )
                 }
-                if (capabilities.normalizedYears().isNotEmpty()) item {
-                    RankingYearFilterRow(
-                        options = capabilities.normalizedYears(),
-                        selected = selectedRequest.year,
-                        onSelected = { year -> onRequest(selectedRequest.copy(year = year, cursor = null)) }
-                    )
-                }
-                if (capabilities.normalizedGenres().isNotEmpty()) item {
-                    RankingNullableFilterRow(
-                        title = "类型",
-                        options = capabilities.normalizedGenres(),
-                        selectedId = selectedRequest.genre,
-                        onSelected = { genre -> onRequest(selectedRequest.copy(genre = genre, cursor = null)) },
-                        testTagPrefix = "ranking-genre"
-                    )
-                }
-                if (capabilities.normalizedLanguages().isNotEmpty()) item {
-                    RankingNullableFilterRow(
-                        title = "语言",
-                        options = capabilities.normalizedLanguages(),
-                        selectedId = selectedRequest.language,
-                        onSelected = { language -> onRequest(selectedRequest.copy(language = language, cursor = null)) },
-                        testTagPrefix = "ranking-language"
-                    )
+                if (hasMoreFilters && showMoreFilters) item {
+                    SoftPanel(
+                        modifier = Modifier.testTag("ranking-more-filters-panel"),
+                        innerPadding = 12.dp
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (supportedRegions.isNotEmpty()) {
+                                RankingNullableFilterRow(
+                                    title = "国家/地区",
+                                    options = supportedRegions,
+                                    selectedId = selectedRequest.region,
+                                    onSelected = { region -> onRequest(selectedRequest.copy(region = region, cursor = null)) },
+                                    testTagPrefix = "ranking-region"
+                                )
+                            }
+                            if (supportedYears.isNotEmpty()) {
+                                RankingYearFilterRow(
+                                    options = supportedYears,
+                                    selected = selectedRequest.year,
+                                    onSelected = { year -> onRequest(selectedRequest.copy(year = year, cursor = null)) }
+                                )
+                            }
+                            if (supportedGenres.isNotEmpty()) {
+                                RankingNullableFilterRow(
+                                    title = "类型",
+                                    options = supportedGenres,
+                                    selectedId = selectedRequest.genre,
+                                    onSelected = { genre -> onRequest(selectedRequest.copy(genre = genre, cursor = null)) },
+                                    testTagPrefix = "ranking-genre"
+                                )
+                            }
+                            if (supportedLanguages.isNotEmpty()) {
+                                RankingNullableFilterRow(
+                                    title = "语言",
+                                    options = supportedLanguages,
+                                    selectedId = selectedRequest.language,
+                                    onSelected = { language -> onRequest(selectedRequest.copy(language = language, cursor = null)) },
+                                    testTagPrefix = "ranking-language"
+                                )
+                            }
+                        }
+                    }
                 }
             } else if (state !is RankingUiState.Loading) {
-                item { RankingCapabilitiesUnavailable(onOpenSearch = onOpenSearch) }
+                item {
+                    RankingCapabilitiesUnavailable(
+                        state = state,
+                        onRetry = onRefresh,
+                        onOpenSearch = onOpenSearch
+                    )
+                }
             }
             when (state) {
                 is RankingUiState.Loading -> item { RankingLoadingState() }
@@ -231,7 +264,7 @@ fun RankingScreen(
                     items(state, onLoadNextPage, onSearch)
                 }
                 is RankingUiState.Empty -> if (capabilities.canLoadRanking || state.request != null) {
-                    item { RankingEmptyState(state, request, onRefresh, onOpenSearch) }
+                    item { RankingEmptyState(state, request, capabilities, onRefresh, onOpenSearch) }
                 }
                 is RankingUiState.Error -> item { RankingErrorState(state.error, state.canRetry, onRefresh, onBack, onOpenSearch) }
             }
@@ -390,6 +423,22 @@ private fun RankingYearFilterRow(
 }
 
 @Composable
+private fun RankingMoreFiltersToggle(expanded: Boolean, onToggle: () -> Unit) {
+    val colors = appColors()
+    OutlinedButton(
+        onClick = onToggle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .testTag("ranking-more-filters"),
+        border = BorderStroke(1.dp, colors.roseBeige),
+        contentPadding = PaddingValues(vertical = 10.dp)
+    ) {
+        Text(if (expanded) "收起更多筛选" else "更多筛选", color = colors.roseDust, fontSize = 14.sp)
+    }
+}
+
+@Composable
 private fun RankingLoadingState() {
     val colors = appColors()
     SoftPanel(
@@ -408,7 +457,11 @@ private fun RankingLoadingState() {
 }
 
 @Composable
-private fun RankingCapabilitiesUnavailable(onOpenSearch: () -> Unit) {
+private fun RankingCapabilitiesUnavailable(
+    state: RankingUiState,
+    onRetry: () -> Unit,
+    onOpenSearch: () -> Unit
+) {
     val colors = appColors()
     SoftPanel(
         modifier = Modifier
@@ -417,12 +470,29 @@ private fun RankingCapabilitiesUnavailable(onOpenSearch: () -> Unit) {
         innerPadding = 12.dp
     ) {
         Text("排行榜暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-        Text("当前服务没有返回完整的榜单能力，暂不显示未经验证的筛选项。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(
-            onClick = onOpenSearch,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ranking-open-search-unavailable"),
-            border = BorderStroke(1.dp, colors.roseBeige)
-        ) { Text("去追剧搜索", color = colors.roseDust) }
+        Text(
+            if (state is RankingUiState.Empty && state.error != null) {
+                state.message
+            } else {
+                "当前服务没有返回完整的榜单能力，暂不显示未经验证的筛选项。"
+            },
+            color = colors.softGray,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            if (state is RankingUiState.Empty && state.canRetry) {
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("ranking-capabilities-retry"),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.roseDust)
+                ) { Text("重试") }
+            }
+            OutlinedButton(
+                onClick = onOpenSearch,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("ranking-open-search-unavailable"),
+                border = BorderStroke(1.dp, colors.roseBeige)
+            ) { Text("去追剧搜索", color = colors.roseDust) }
+        }
     }
 }
 
@@ -499,6 +569,7 @@ private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
 private fun RankingEmptyState(
     state: RankingUiState.Empty,
     request: RankingRequest?,
+    capabilities: RankingCapabilities,
     onRefresh: () -> Unit,
     onOpenSearch: () -> Unit
 ) {
@@ -515,7 +586,7 @@ private fun RankingEmptyState(
         )
         if (request != null) {
             Text(
-                text = rankingFilterSummary(request),
+                text = rankingFilterSummary(request, capabilities),
                 color = colors.softGray,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -652,6 +723,13 @@ private fun RankingSnapshotMeta(state: RankingSnapshotUiState) {
             color = colors.softGray,
             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
         )
+        val trace = buildList {
+            state.snapshot.methodologyVersion?.takeIf(String::isNotBlank)?.let { add("算法 $it") }
+            state.snapshot.identityMapVersion?.takeIf(String::isNotBlank)?.let { add("身份映射 $it") }
+        }.joinToString(" · ")
+        if (trace.isNotBlank()) {
+            Text(trace, color = colors.softGray, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
+        }
     }
 }
 
@@ -715,9 +793,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     entry.displayTitle,
                     color = colors.cocoa,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.SemiBold
                 )
                 entry.originalTitle?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = colors.softGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -735,7 +811,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                 )
                 entry.aggregateScore?.let { score ->
                     Text(
-                        "综合参考 ${formatRankingScore(score)}",
+                        "综合参考 ${formatRankingScore(score)}/10",
                         color = colors.roseDust,
                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                         fontWeight = FontWeight.Medium
@@ -797,17 +873,30 @@ private fun RankingUiState.requestOrNull(): RankingRequest? = when (this) {
     is RankingUiState.Error -> request
 }
 
-private fun rankingFilterSummary(request: RankingRequest): String = buildList {
-    add("榜单 ${request.boardId}")
+private fun rankingFilterSummary(
+    request: RankingRequest,
+    capabilities: RankingCapabilities
+): String = buildList {
+    add("榜单 ${capabilities.normalizedBoards().firstOrNull { it.id == request.boardId }?.label ?: request.boardId}")
     add(mediaTypeLabel(request.mediaType))
-    request.period?.takeIf(String::isNotBlank)?.let { add(it) }
-    request.region?.takeIf(String::isNotBlank)?.let { add(it) }
+    request.period?.takeIf(String::isNotBlank)?.let {
+        add(capabilities.normalizedPeriods().firstOrNull { option -> option.id == it }?.label ?: it)
+    }
+    request.region?.takeIf(String::isNotBlank)?.let {
+        add(capabilities.normalizedRegions().firstOrNull { option -> option.id == it }?.label ?: it)
+    }
     request.year?.let { add(it.toString()) }
+    request.genre?.takeIf(String::isNotBlank)?.let {
+        add(capabilities.normalizedGenres().firstOrNull { option -> option.id == it }?.label ?: it)
+    }
+    request.language?.takeIf(String::isNotBlank)?.let {
+        add(capabilities.normalizedLanguages().firstOrNull { option -> option.id == it }?.label ?: it)
+    }
 }.joinToString(" · ")
 
 private fun rankingErrorCopy(error: RankingError): String = when (error.kind) {
     RankingFailureKind.RATE_LIMITED -> "请求过于频繁，请稍后再试。"
-    RankingFailureKind.BAD_REQUEST -> "当前筛选条件暂不支持，请换一个榜单或媒体类型。"
+    RankingFailureKind.BAD_REQUEST -> "当前筛选条件暂不支持，请调整筛选后重试。"
     RankingFailureKind.NOT_FOUND -> "当前榜单暂不可用。"
     RankingFailureKind.SNAPSHOT_EXPIRED -> "榜单快照已更新，请重新加载。"
     RankingFailureKind.CONTENT_TYPE, RankingFailureKind.MALFORMED_RESPONSE -> "榜单返回内容异常，暂时无法读取。"

@@ -31,7 +31,9 @@ class AndroidRankingCache(
             require(cachedAt in 0..clockMillis())
             val etag = if (envelope.isNull("etag")) null else safeEtag(envelope.getString("etag"))
             val snapshot = parseRankingSnapshot(envelope.getJSONObject("snapshot").toString(), clockMillis()).getOrThrow()
-            CachedRanking(snapshot, cachedAt, etag)
+            require(envelope.has("hasMorePages"))
+            val hasMorePages = envelope.getBoolean("hasMorePages")
+            CachedRanking(snapshot, cachedAt, etag, hasMorePages)
         }.getOrElse {
             remove(key)
             null
@@ -48,6 +50,7 @@ class AndroidRankingCache(
             .put("version", CACHE_VERSION)
             .put("cachedAtMillis", cachedAtMillis)
             .put("etag", safeEtag(etag) ?: JSONObject.NULL)
+            .put("hasMorePages", snapshot.nextCursor != null)
             .put("snapshot", snapshot.toCacheJson())
             .toString()
         require(envelope.toByteArray(StandardCharsets.UTF_8).size <= maxEntryBytes) { "ranking cache entry is oversized" }
@@ -87,6 +90,8 @@ private fun RankingSnapshot.toJson() = JSONObject()
     .put("sourceStatuses", JSONArray(sourceStatuses.map { it.toJson() }))
     .put("items", JSONArray(items.map { it.toJson() }))
     .put("nextCursor", nextCursor ?: JSONObject.NULL)
+    .put("methodologyVersion", methodologyVersion ?: JSONObject.NULL)
+    .put("identityMapVersion", identityMapVersion ?: JSONObject.NULL)
 
 private fun RankingFilters.toJson() = JSONObject()
     .put("period", period ?: JSONObject.NULL)
@@ -141,6 +146,6 @@ private fun SourceRank.toJson() = JSONObject()
 
 private fun InstantLike.iso(): String = Instant.ofEpochMilli(epochMillis).toString()
 
-private const val CACHE_VERSION = 1
+private const val CACHE_VERSION = 2
 private const val DEFAULT_MAX_CACHE_ENTRY_BYTES = 512 * 1024
 private const val MAX_ALLOWED_CACHE_ENTRY_BYTES = 2 * 1024 * 1024
