@@ -1,5 +1,6 @@
 package com.lovelyreader.video.ranking
 
+import com.lovelyreader.network.isUnsafeNetworkAddress
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -26,7 +27,8 @@ class AndroidRankingTransport(
     private val connectionFactory: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
     private val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MILLIS,
-    private val maxResponseBytes: Int = DEFAULT_MAX_RESPONSE_BYTES
+    private val maxResponseBytes: Int = DEFAULT_MAX_RESPONSE_BYTES,
+    private val resolveAddresses: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() }
 ) : RankingTransport {
     private val endpoint = approvedEndpoint(endpoint, approvedHosts)
 
@@ -41,6 +43,16 @@ class AndroidRankingTransport(
         validateRankingRequest(request).getOrThrow()
         val url = buildRankingRequestUrl(endpoint, request).toURL()
         val connection = try {
+            val literal = rankingLiteralAddress(endpoint.host)
+            if (literal == null) {
+                resolveRankingPublicAddresses(endpoint.host, resolveAddresses)
+                // URLConnection resolves the hostname again. Even an entirely public preflight
+                // cannot prevent rebinding. Keep named endpoints disabled until the factory can
+                // bind a vetted address while retaining platform TLS/SNI/hostname verification.
+                throw RankingTransportException(RankingTransportFailure.NETWORK)
+            }
+            if (isUnsafeNetworkAddress(literal)) throw RankingTransportException(RankingTransportFailure.NETWORK)
+            coroutineContext.ensureActive()
             connectionFactory(url)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -119,16 +131,24 @@ internal fun approvedEndpoint(raw: String, approvedHosts: Set<String>): URI {
 private fun isPublicEndpointHost(host: String): Boolean {
     val value = host.lowercase().removePrefix("[").removeSuffix("]")
     if (value == "localhost" || value.endsWith(".localhost") || value.endsWith(".local")) return false
-    val literal = when {
-        ':' in value -> runCatching { InetAddress.getByName(value) }.getOrNull()
-        value.all { it.isDigit() || it == '.' } -> runCatching { InetAddress.getByName(value) }.getOrNull()
-        else -> null
-    } ?: return ':' !in value && value.any { it.isLetter() }
-    val bytes = literal.address
-    val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
-    val carrierGradeNat = bytes.size == 4 && (bytes[0].toInt() and 0xff) == 100 && (bytes[1].toInt() and 0xc0) == 64
-    return !literal.isAnyLocalAddress && !literal.isLoopbackAddress && !literal.isLinkLocalAddress &&
-        !literal.isSiteLocalAddress && !literal.isMulticastAddress && !uniqueLocalV6 && !carrierGradeNat
+    val literal = rankingLiteralAddress(value) ?: return ':' !in value && value.any { it.isLetter() }
+    return !isUnsafeNetworkAddress(literal)
+}
+
+/** Literal parsing never sends a named host to DNS; scoped IPv6 addresses are not public origins. */
+private fun rankingLiteralAddress(host: String): InetAddress? {
+    val value = host.removePrefix("[").removeSuffix("]")
+    if ('%' in value || (':' !in value && !value.all { it in '0'..'9' || it == '.' })) return null
+    return runCatching { InetAddress.getByName(value) }.getOrNull()
+}
+
+internal fun resolveRankingPublicAddresses(
+    host: String,
+    resolver: (String) -> List<InetAddress>
+): List<InetAddress> {
+    val addresses = resolver(host).filterNot(::isUnsafeNetworkAddress).distinct()
+    if (addresses.isEmpty()) throw RankingTransportException(RankingTransportFailure.NETWORK)
+    return addresses
 }
 
 internal fun buildRankingRequestUrl(endpoint: URI, request: RankingRequest): URI {

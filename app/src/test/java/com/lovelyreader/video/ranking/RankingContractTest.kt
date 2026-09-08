@@ -20,6 +20,14 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace(",\"originalTitle\":\"Example\"", "").replace(",\"summary\":\"summary\"", "").replace(",\"posterUrl\":\"https://img.example/poster.jpg\"", ""), now).isSuccess)
     }
 
+    @Test fun `ranking posters remain placeholders until address bound redirect safe loading exists`() {
+        listOf("https://img.example/poster.jpg", "https://8.8.8.8/poster.jpg", "https://[2001:4860:4860::8888]/poster.jpg").forEach { poster ->
+            val snapshot = parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", poster), now).getOrThrow()
+            assertEquals(null, snapshot.items.single().posterUrl)
+            assertEquals("示例片", snapshot.items.single().displayTitle)
+        }
+    }
+
     @Test fun `rejects private poster, oversized or non-string optional text`() {
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://127.0.0.1/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("\"summary\":\"summary\"", "\"summary\":\"${"x".repeat(5001)}\""), now).isFailure)

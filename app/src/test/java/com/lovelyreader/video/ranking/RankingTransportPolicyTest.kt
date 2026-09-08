@@ -3,11 +3,14 @@ package com.lovelyreader.video.ranking
 import android.content.SharedPreferences
 import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URI
 import java.net.URL
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,12 +60,98 @@ class RankingTransportPolicyTest {
     }
 
     @Test
+    fun `named endpoints never reach an unbound connection factory`() = runTest {
+        var opened = false
+        val failure = runCatching {
+            AndroidRankingTransport("https://rank.example/api/v1/ranking", setOf("rank.example"), connectionFactory = {
+                opened = true
+                StubConnection(it, 200, "{}", "application/json")
+            }, resolveAddresses = { listOf(InetAddress.getByName("8.8.8.8")) }).fetch(request, null)
+        }.exceptionOrNull()
+        assertTrue(failure is RankingTransportException)
+        assertFalse(opened)
+    }
+
+    @Test
+    fun `dns filter rejects every special use class and selects only public mixed answers`() {
+        val unsafe = listOf("127.0.0.1", "::1", "10.0.0.1", "172.16.0.1", "192.168.0.1", "169.254.169.254",
+            "fe80::1", "fd00::1", "224.0.0.1", "ff02::1", "0.0.0.0", "::", "100.64.0.1", "192.0.2.1",
+            "198.18.0.1", "198.51.100.1", "203.0.113.1", "240.0.0.1", "2001:db8::1", "fec0::1")
+            .map(InetAddress::getByName)
+        unsafe.forEach { address ->
+            assertThrows(RankingTransportException::class.java) {
+                resolveRankingPublicAddresses("rank.example") { listOf(address) }
+            }
+        }
+        val publicV4 = InetAddress.getByName("8.8.8.8")
+        val publicV6 = InetAddress.getByName("2001:4860:4860::8888")
+        assertEquals(listOf(publicV4, publicV6), resolveRankingPublicAddresses("rank.example") {
+            unsafe + listOf(publicV4, publicV4, publicV6)
+        })
+        assertThrows(RankingTransportException::class.java) {
+            resolveRankingPublicAddresses("rank.example") { emptyList() }
+        }
+    }
+
+    @Test
+    fun `approved named dns answers and lookup failures never open an unbound connection`() = runTest {
+        val answers = listOf(emptyList(), listOf("127.0.0.1"), listOf("8.8.8.8", "::1"), listOf("8.8.8.8"))
+        answers.forEach { values ->
+            var resolvedHost: String? = null
+            var opened = false
+            val result = runCatching {
+                AndroidRankingTransport("https://RANK.example/api/v1/ranking", setOf("rank.example"),
+                    connectionFactory = { opened = true; StubConnection(it, 200, "{}", "application/json") },
+                    resolveAddresses = { host -> resolvedHost = host; values.map(InetAddress::getByName) }
+                ).fetch(request, null)
+            }
+            assertTrue(result.exceptionOrNull() is RankingTransportException)
+            assertEquals("rank.example", resolvedHost)
+            assertFalse(opened)
+        }
+        val failure = runCatching {
+            AndroidRankingTransport("https://rank.example/api/v1/ranking", setOf("rank.example"),
+                connectionFactory = { error("must not open") },
+                resolveAddresses = { throw java.net.UnknownHostException("sensitive DNS details") }
+            ).fetch(request, null)
+        }.exceptionOrNull() as RankingTransportException
+        assertEquals(RankingTransportFailure.NETWORK, failure.failure)
+        assertEquals("Ranking transport failed", failure.message)
+    }
+
+    @Test
+    fun `dns cancellation propagates`() {
+        assertThrows(CancellationException::class.java) {
+            runTest {
+                AndroidRankingTransport("https://rank.example/api/v1/ranking", setOf("rank.example"),
+                    connectionFactory = { error("must not open") },
+                    resolveAddresses = { throw CancellationException("cancelled") }
+                ).fetch(request, null)
+            }
+        }
+    }
+
+    @Test
+    fun `endpoint literals use the shared special use address exclusions`() {
+        listOf("192.0.2.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "240.0.0.1").forEach { host ->
+            assertThrows(IllegalArgumentException::class.java) {
+                approvedEndpoint("https://$host/api/v1/ranking", setOf(host))
+            }
+        }
+    }
+
+    @Test
     fun `transport disables redirects applies bounds and sends conditional etag`() = runTest {
         val connection = StubConnection(URL("https://rank.example"), 200, "{}", "application/json")
         val transport = AndroidRankingTransport(
-            endpoint = "https://rank.example/api/v1/ranking",
-            approvedHosts = setOf("rank.example"),
-            connectionFactory = { connection },
+            endpoint = "https://8.8.8.8/api/v1/ranking",
+            approvedHosts = setOf("8.8.8.8"),
+            connectionFactory = { url ->
+                assertEquals("https", url.protocol)
+                assertEquals("8.8.8.8", url.host)
+                connection
+            },
+            resolveAddresses = { error("literal must not trigger DNS") },
             connectTimeoutMillis = 1_234,
             readTimeoutMillis = 2_345,
             maxResponseBytes = 64
@@ -81,8 +170,8 @@ class RankingTransportPolicyTest {
     fun `transport rejects redirect non json and oversized bodies`() = runTest {
         suspend fun fetch(status: Int, body: String, contentType: String?): Throwable? = runCatching {
             AndroidRankingTransport(
-                endpoint = "https://rank.example/api/v1/ranking",
-                approvedHosts = setOf("rank.example"),
+                endpoint = "https://8.8.8.8/api/v1/ranking",
+                approvedHosts = setOf("8.8.8.8"),
                 connectionFactory = { StubConnection(URL("https://rank.example"), status, body, contentType) },
                 maxResponseBytes = 8
             ).fetch(request, null)
@@ -96,8 +185,8 @@ class RankingTransportPolicyTest {
     @Test
     fun `transport preserves an http error when the server sends no body`() = runTest {
         val transport = AndroidRankingTransport(
-            endpoint = "https://rank.example/api/v1/ranking",
-            approvedHosts = setOf("rank.example"),
+            endpoint = "https://8.8.8.8/api/v1/ranking",
+            approvedHosts = setOf("8.8.8.8"),
             connectionFactory = { NoBodyErrorConnection(URL("https://rank.example"), 404) }
         )
 
@@ -126,6 +215,7 @@ class RankingTransportPolicyTest {
     @Test
     fun `android cache atomically round trips only a namespaced snapshot envelope`() = runTest {
         val preferences = MemoryPreferences()
+        val callerThread = Thread.currentThread()
         val cache = AndroidRankingCache(preferences, clockMillis = { 1_000 })
         val key = rankingCacheKey(request)
 
@@ -133,6 +223,7 @@ class RankingTransportPolicyTest {
         val restored = cache.read(key)
 
         assertEquals(1, preferences.commitCount)
+        assertNotEquals(callerThread, preferences.commitThread)
         assertEquals("snapshot-cache", restored?.snapshot?.snapshotId)
         assertEquals("etag-1", restored?.etag)
         assertEquals(setOf(key), preferences.all.keys)
@@ -202,6 +293,7 @@ class RankingTransportPolicyTest {
         private val values: MutableMap<String, Any?> = mutableMapOf()
     ) : SharedPreferences {
         var commitCount = 0
+        var commitThread: Thread? = null
         override fun getAll(): MutableMap<String, *> = values.toMutableMap()
         override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
         @Suppress("UNCHECKED_CAST")
@@ -229,6 +321,7 @@ class RankingTransportPolicyTest {
             override fun remove(key: String) = apply { removals += key }
             override fun clear() = apply { clear = true }
             override fun commit(): Boolean {
+                commitThread = Thread.currentThread()
                 if (clear) values.clear()
                 removals.forEach(values::remove)
                 updates.forEach { (key, value) -> if (value == null) values.remove(key) else values[key] = value }
