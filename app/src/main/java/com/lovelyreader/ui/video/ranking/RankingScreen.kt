@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -225,7 +226,13 @@ fun RankingScreen(
                 is RankingUiState.Loading -> item { RankingLoadingState() }
                 is RankingUiState.Content -> items(state, onLoadNextPage, onSearch)
                 is RankingUiState.Refreshing -> {
-                    item { RankingRefreshingBanner() }
+                    item {
+                        RankingRefreshingBanner(
+                            filterChanged = !state.snapshot.hasSameRankingContext(state.request),
+                            request = state.request,
+                            capabilities = state.capabilities
+                        )
+                    }
                     items(state, onLoadNextPage, onSearch)
                 }
                 is RankingUiState.Partial -> {
@@ -520,13 +527,17 @@ private fun RankingCapabilitiesUnavailable(
 }
 
 @Composable
-private fun RankingRefreshingBanner() {
+private fun RankingRefreshingBanner(
+    filterChanged: Boolean,
+    request: RankingRequest,
+    capabilities: RankingCapabilities
+) {
     val colors = appColors()
     SoftPanel(
         modifier = Modifier
             .testTag("ranking-refreshing")
             .semantics {
-                contentDescription = "正在刷新排行榜"
+                contentDescription = if (filterChanged) "正在应用排行榜筛选" else "正在刷新排行榜"
                 liveRegion = LiveRegionMode.Polite
             },
         innerPadding = 12.dp
@@ -541,8 +552,20 @@ private fun RankingRefreshingBanner() {
                 strokeWidth = 2.dp
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("正在刷新排行榜", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-                Text("当前内容仍可浏览，刷新完成后会整批更新。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (filterChanged) "正在应用筛选" else "正在刷新排行榜",
+                    color = colors.cocoa,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    if (filterChanged) {
+                        "当前仍显示上一组条件的内容，完成后将更新为：${rankingFilterSummary(request, capabilities)}"
+                    } else {
+                        "当前内容仍可浏览，刷新完成后会整批更新。"
+                    },
+                    color = colors.softGray,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
     }
@@ -807,7 +830,8 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                 DramaPoster(
                     url = entry.posterUrl,
                     title = entry.displayTitle,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
                 )
             }
             Column(
@@ -900,6 +924,12 @@ private fun RankingUiState.requestOrNull(): RankingRequest? = when (this) {
     is RankingUiState.Empty -> request
     is RankingUiState.Error -> request
 }
+
+private fun com.lovelyreader.video.ranking.RankingSnapshot.hasSameRankingContext(request: RankingRequest): Boolean =
+    boardId == request.boardId && filters.period == request.period &&
+        filters.mediaType == request.mediaType && filters.region == request.region &&
+        filters.year == request.year && filters.genre == request.genre &&
+        filters.language == request.language && filters.limit == request.limit
 
 private fun rankingFilterSummary(
     request: RankingRequest,
