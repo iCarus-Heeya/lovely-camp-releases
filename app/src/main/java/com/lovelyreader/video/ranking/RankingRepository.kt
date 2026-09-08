@@ -112,7 +112,13 @@ class DefaultRankingRepository(
         return when (response.statusCode) {
             200 -> handleSuccess(request, key, cached, now, response)
             304 -> {
-                if (cached != null && now <= cached.snapshot.staleUntil.epochMillis) {
+                if (cached?.hasMorePages == true) {
+                    emptyError(
+                        RankingFailureKind.MALFORMED_RESPONSE,
+                        "Ranking cache pagination cannot be revalidated without a cursor",
+                        304
+                    )
+                } else if (cached != null && now <= cached.snapshot.staleUntil.epochMillis) {
                     val source = if (!cached.hasMorePages && now < cached.snapshot.expiresAt.epochMillis) {
                         RankingDataSource.CACHE_FRESH
                     } else {
