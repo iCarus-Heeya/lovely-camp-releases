@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class AndroidRankingCache(
     private val preferences: SharedPreferences,
@@ -15,14 +17,14 @@ class AndroidRankingCache(
         require(maxEntryBytes in 1..MAX_ALLOWED_CACHE_ENTRY_BYTES) { "invalid cache entry limit" }
     }
 
-    override suspend fun read(key: String): CachedRanking? {
-        if (!key.startsWith(CACHE_NAMESPACE)) return null
-        val raw = preferences.getString(key, null) ?: return null
+    override suspend fun read(key: String): CachedRanking? = withContext(Dispatchers.IO) {
+        if (!key.startsWith(CACHE_NAMESPACE)) return@withContext null
+        val raw = preferences.getString(key, null) ?: return@withContext null
         if (raw.toByteArray(StandardCharsets.UTF_8).size > maxEntryBytes) {
             remove(key)
-            return null
+            return@withContext null
         }
-        return runCatching {
+        runCatching {
             val envelope = JSONObject(raw)
             require(envelope.getInt("version") == CACHE_VERSION)
             val cachedAt = envelope.getLong("cachedAtMillis")
@@ -40,7 +42,7 @@ class AndroidRankingCache(
         write(key, snapshot, null, clockMillis())
     }
 
-    override suspend fun write(key: String, snapshot: RankingSnapshot, etag: String?, cachedAtMillis: Long) {
+    override suspend fun write(key: String, snapshot: RankingSnapshot, etag: String?, cachedAtMillis: Long): Unit = withContext(Dispatchers.IO) {
         require(key.startsWith(CACHE_NAMESPACE)) { "ranking cache key is not namespaced" }
         val envelope = JSONObject()
             .put("version", CACHE_VERSION)
@@ -52,8 +54,9 @@ class AndroidRankingCache(
         check(preferences.edit().putString(key, envelope).commit()) { "ranking cache write failed" }
     }
 
-    override suspend fun remove(key: String) {
+    override suspend fun remove(key: String): Unit = withContext(Dispatchers.IO) {
         if (key.startsWith(CACHE_NAMESPACE)) preferences.edit().remove(key).commit()
+        Unit
     }
 }
 

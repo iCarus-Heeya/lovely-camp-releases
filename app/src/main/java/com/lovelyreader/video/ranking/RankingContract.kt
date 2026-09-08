@@ -76,7 +76,10 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         val e = itemsJson.getJSONObject(i); val id = requiredText(e, "canonicalId"); require(seenIds.add(id)) { "duplicate canonicalId" }
         val r = if (e.isNull("rank")) null else rank(intNumber(e, "rank", 1), "rank"); if (r != null) require(seenRanks.add(r)) { "duplicate rank" }
         val poster = nullable(e, "posterUrl"); poster?.let { val u = URI(it); require(u.scheme.equals("https", true) && !u.host.isNullOrBlank() && u.userInfo == null && isPublicHost(u.host)) { "invalid posterUrl" } }
-        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), poster, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else number(e, "aggregateScore"), ratings(array(e, "sourceRatings")), ranks(array(e, "sourceRanks")), coverage(obj(e, "coverage")), requiredText(e, "searchTitle"))
+        // The shared source-site poster loader is not a ranking-approved DNS-bound transport.
+        // Keep valid metadata but emit placeholders until that independent boundary exists.
+        // Disk cache restores use this parser too, so older named URLs cannot bypass the gate.
+        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), null, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else number(e, "aggregateScore"), ratings(array(e, "sourceRatings")), ranks(array(e, "sourceRanks")), coverage(obj(e, "coverage")), requiredText(e, "searchTitle"))
     }
     RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"))
 }

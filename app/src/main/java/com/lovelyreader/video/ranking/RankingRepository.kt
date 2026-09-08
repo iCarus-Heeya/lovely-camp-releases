@@ -64,7 +64,9 @@ data class RankingError(
 data class RankingLoadResult(
     val snapshot: RankingSnapshot?,
     val source: RankingDataSource,
-    val error: RankingError? = null
+    val error: RankingError? = null,
+    /** Bounded diagnostic only; never contains storage errors, paths, payloads or credentials. */
+    val cacheWriteFailed: Boolean = false
 )
 
 class DefaultRankingRepository(
@@ -142,12 +144,19 @@ class DefaultRankingRepository(
         if (!snapshot.matches(request)) {
             return fallback(cached, now, RankingError(RankingFailureKind.MALFORMED_RESPONSE, "Ranking response does not match request"))
         }
-        if (cache is RankingEtagCache) {
-            cache.write(key, snapshot, safeEtag(response.etag), now)
-        } else {
-            cache.write(key, snapshot)
+        val cacheWriteFailed = try {
+            if (cache is RankingEtagCache) {
+                cache.write(key, snapshot, safeEtag(response.etag), now)
+            } else {
+                cache.write(key, snapshot)
+            }
+            false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            true
         }
-        return RankingLoadResult(snapshot, RankingDataSource.NETWORK)
+        return RankingLoadResult(snapshot, RankingDataSource.NETWORK, cacheWriteFailed = cacheWriteFailed)
     }
 
     private fun fallback(cached: CachedRanking?, now: Long, error: RankingError): RankingLoadResult {

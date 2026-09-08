@@ -7,6 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class RankingRepositoryTest {
@@ -43,6 +45,7 @@ class RankingRepositoryTest {
         assertEquals("snapshot-1", result.snapshot?.snapshotId)
         assertEquals("etag-2", cache.value?.etag)
         assertEquals(1_000L, cache.value?.cachedAtMillis)
+        assertFalse(result.cacheWriteFailed)
     }
 
     @Test
@@ -64,6 +67,47 @@ class RankingRepositoryTest {
         assertNull(withoutCache.snapshot)
         assertEquals(RankingDataSource.EMPTY, withoutCache.source)
         assertEquals(RankingFailureKind.NOT_MODIFIED_WITHOUT_CACHE, withoutCache.error?.kind)
+    }
+
+    @Test
+    fun `failed persistence keeps the new network snapshot successful`() = runTest {
+        val cache = object : RankingCache {
+            override suspend fun read(key: String) = CachedRanking(snapshot(900, 3_000), 800)
+            override suspend fun write(key: String, snapshot: RankingSnapshot) { throw IOException("private path and token") }
+            override suspend fun remove(key: String) = Unit
+        }
+        val result = DefaultRankingRepository(QueueTransport(response(200, validJson())), cache, { 1_000 })
+            .load(request, forceRefresh = true)
+        assertEquals(RankingDataSource.NETWORK, result.source)
+        assertEquals("snapshot-1", result.snapshot?.snapshotId)
+        assertNull(result.error)
+        assertTrue(result.cacheWriteFailed)
+    }
+
+    @Test
+    fun `etag persistence failure keeps successful network data without exposing storage details`() = runTest {
+        val result = DefaultRankingRepository(
+            QueueTransport(response(200, validJson(), etag = "etag-new")),
+            FakeCache(writeFailure = IOException("private path and token")),
+            { 1_000 }
+        ).load(request)
+        assertEquals(RankingDataSource.NETWORK, result.source)
+        assertEquals("snapshot-1", result.snapshot?.snapshotId)
+        assertNull(result.error)
+        assertTrue(result.cacheWriteFailed)
+    }
+
+    @Test
+    fun `cache persistence cancellation still propagates`() {
+        assertThrows(CancellationException::class.java) {
+            runTest {
+                DefaultRankingRepository(
+                    QueueTransport(response(200, validJson())),
+                    FakeCache(writeFailure = CancellationException("cancelled")),
+                    { 1_000 }
+                ).load(request)
+            }
+        }
     }
 
     @Test
@@ -169,13 +213,15 @@ class RankingRepositoryTest {
         override suspend fun fetch(request: RankingRequest, etag: String?): RankingHttpResponse = throw failure
     }
 
-    private class FakeCache(initial: CachedRanking? = null) : RankingEtagCache {
+    private class FakeCache(initial: CachedRanking? = null, private val writeFailure: Throwable? = null) : RankingEtagCache {
         var value = initial
         override suspend fun read(key: String) = value
         override suspend fun write(key: String, snapshot: RankingSnapshot) {
+            writeFailure?.let { throw it }
             value = CachedRanking(snapshot, 0)
         }
         override suspend fun write(key: String, snapshot: RankingSnapshot, etag: String?, cachedAtMillis: Long) {
+            writeFailure?.let { throw it }
             value = CachedRanking(snapshot, cachedAtMillis, etag)
         }
         override suspend fun remove(key: String) { value = null }
