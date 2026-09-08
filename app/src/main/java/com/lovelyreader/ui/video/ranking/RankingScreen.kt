@@ -171,7 +171,10 @@ fun RankingScreen(
             when (state) {
                 RankingUiState.Loading -> item { RankingLoadingState() }
                 is RankingUiState.Content -> items(state, onLoadNextPage, onSearch)
-                is RankingUiState.Refreshing -> items(state, onLoadNextPage, onSearch)
+                is RankingUiState.Refreshing -> {
+                    item { RankingRefreshingBanner() }
+                    items(state, onLoadNextPage, onSearch)
+                }
                 is RankingUiState.Partial -> {
                     item { RankingPartialBanner() }
                     items(state, onLoadNextPage, onSearch)
@@ -264,6 +267,32 @@ private fun RankingLoadingState() {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("正在加载排行榜", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
                 Text("正在等待真实榜单快照，不会用占位内容代替。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RankingRefreshingBanner() {
+    val colors = appColors()
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-refreshing")
+            .semantics { contentDescription = "正在刷新排行榜" },
+        innerPadding = 12.dp
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = colors.roseBeige,
+                strokeWidth = 2.dp
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("正在刷新排行榜", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+                Text("当前内容仍可浏览，刷新完成后会整批更新。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
