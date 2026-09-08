@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -39,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,21 +59,18 @@ import com.lovelyreader.video.ranking.RankingFailureKind
 import com.lovelyreader.video.ranking.RankingFreshness
 import com.lovelyreader.video.ranking.RankingMediaType
 import com.lovelyreader.video.ranking.RankingRequest
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
-private data class BoardOption(val id: String, val label: String)
+/** A server capability, not a client-side list of guessed ranking choices. */
+data class RankingBoardOption(val id: String, val label: String)
 
-private val boardOptions = listOf(
-    BoardOption("aggregate", "综合参考"),
-    BoardOption("source", "来源榜单"),
-    BoardOption("featured", "来源精选")
-)
-
-private val mediaOptions = listOf(
-    RankingMediaType.ALL to "全部",
-    RankingMediaType.MOVIE to "电影",
-    RankingMediaType.SERIES to "剧集",
-    RankingMediaType.VARIETY to "综艺"
-)
+private fun mediaTypeLabel(mediaType: RankingMediaType): String = when (mediaType) {
+    RankingMediaType.ALL -> "全部"
+    RankingMediaType.MOVIE -> "电影"
+    RankingMediaType.SERIES -> "剧集"
+    RankingMediaType.VARIETY -> "综艺"
+}
 
 /** The first request is deliberately conservative until the server capabilities are known. */
 internal fun defaultRankingRequest(): RankingRequest = RankingRequest(
@@ -95,7 +97,9 @@ fun RankingScreen(
     onLoadNextPage: () -> Unit,
     onSearch: (RankingSearchIntent) -> Unit,
     modifier: Modifier = Modifier,
-    listState: LazyListState? = null
+    listState: LazyListState? = null,
+    supportedBoards: List<RankingBoardOption> = emptyList(),
+    supportedMediaTypes: List<RankingMediaType> = emptyList()
 ) {
     val fallbackListState = rememberLazyListState()
     val rankingListState = listState ?: fallbackListState
@@ -145,7 +149,7 @@ fun RankingScreen(
             }
             item {
                 Text(
-                    "按已配置的数据能力展示，不把片源站点顺序当作全网热度。",
+                    "排行榜数据服务接入后展示已验证内容，不把片源站点顺序当作全网热度。",
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("ranking-source-note"),
@@ -153,20 +157,25 @@ fun RankingScreen(
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
                 )
             }
-            item {
-                RankingFilterRow(
-                    title = "榜单类型",
-                    options = boardOptions,
-                    selectedId = request.boardId,
-                    onSelected = { board -> onRequest(request.copy(boardId = board, cursor = null)) },
-                    testTagPrefix = "ranking-board-tab"
-                )
-            }
-            item {
-                RankingMediaFilterRow(
-                    selected = request.mediaType,
-                    onSelected = { media -> onRequest(request.copy(mediaType = media, cursor = null)) }
-                )
+            if (supportedBoards.isEmpty() && supportedMediaTypes.isEmpty()) {
+                item { RankingCapabilitiesUnavailable() }
+            } else {
+                if (supportedBoards.isNotEmpty()) item {
+                    RankingFilterRow(
+                        title = "榜单类型",
+                        options = supportedBoards,
+                        selectedId = request.boardId,
+                        onSelected = { board -> onRequest(request.copy(boardId = board, cursor = null)) },
+                        testTagPrefix = "ranking-board-tab"
+                    )
+                }
+                if (supportedMediaTypes.isNotEmpty()) item {
+                    RankingMediaFilterRow(
+                        supported = supportedMediaTypes,
+                        selected = request.mediaType,
+                        onSelected = { media -> onRequest(request.copy(mediaType = media, cursor = null)) }
+                    )
+                }
             }
             when (state) {
                 RankingUiState.Loading -> item { RankingLoadingState() }
@@ -198,7 +207,7 @@ fun RankingScreen(
 @Composable
 private fun RankingFilterRow(
     title: String,
-    options: List<BoardOption>,
+    options: List<RankingBoardOption>,
     selectedId: String,
     onSelected: (String) -> Unit,
     testTagPrefix: String
@@ -230,6 +239,7 @@ private fun RankingFilterRow(
 
 @Composable
 private fun RankingMediaFilterRow(
+    supported: List<RankingMediaType>,
     selected: RankingMediaType,
     onSelected: (RankingMediaType) -> Unit
 ) {
@@ -241,16 +251,16 @@ private fun RankingMediaFilterRow(
             modifier = Modifier.fillMaxWidth().testTag("ranking-media-tabs"),
             contentPadding = PaddingValues(end = 8.dp)
         ) {
-            items(mediaOptions, key = { it.first.name }) { option ->
+            items(supported.distinct(), key = { it.name }) { mediaType ->
                 FilterChip(
-                    selected = option.first == selected,
-                    onClick = { onSelected(option.first) },
-                    label = { Text(option.second, fontSize = 14.sp, maxLines = 1) },
+                    selected = mediaType == selected,
+                    onClick = { onSelected(mediaType) },
+                    label = { Text(mediaTypeLabel(mediaType), fontSize = 14.sp, maxLines = 1) },
                     modifier = Modifier
                         .heightIn(min = 48.dp)
-                        .testTag("ranking-media-tab-${option.first.name.lowercase()}")
+                        .testTag("ranking-media-tab-${mediaType.name.lowercase()}")
                         .semantics {
-                            contentDescription = "${option.second}，媒体类型${if (option.first == selected) "，已选中" else ""}"
+                            contentDescription = "${mediaTypeLabel(mediaType)}，媒体类型${if (mediaType == selected) "，已选中" else ""}"
                         }
                 )
             }
@@ -261,7 +271,11 @@ private fun RankingMediaFilterRow(
 @Composable
 private fun RankingLoadingState() {
     val colors = appColors()
-    SoftPanel(modifier = Modifier.testTag("ranking-loading")) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-loading")
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colors.roseBeige, strokeWidth = 2.dp)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -273,12 +287,29 @@ private fun RankingLoadingState() {
 }
 
 @Composable
+private fun RankingCapabilitiesUnavailable() {
+    val colors = appColors()
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-capabilities-unavailable")
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        innerPadding = 12.dp
+    ) {
+        Text("筛选待数据能力接入", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+        Text("当前没有已验证的榜单或媒体类型能力，暂不显示可选择的筛选项。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 private fun RankingRefreshingBanner() {
     val colors = appColors()
     SoftPanel(
         modifier = Modifier
             .testTag("ranking-refreshing")
-            .semantics { contentDescription = "正在刷新排行榜" },
+            .semantics {
+                contentDescription = "正在刷新排行榜"
+                liveRegion = LiveRegionMode.Polite
+            },
         innerPadding = 12.dp
     ) {
         Row(
@@ -301,7 +332,12 @@ private fun RankingRefreshingBanner() {
 @Composable
 private fun RankingPartialBanner() {
     val colors = appColors()
-    SoftPanel(modifier = Modifier.testTag("ranking-partial"), innerPadding = 12.dp) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-partial")
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        innerPadding = 12.dp
+    ) {
         Text("部分来源暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text("以下内容只来自当前仍可验证的来源。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
     }
@@ -310,7 +346,12 @@ private fun RankingPartialBanner() {
 @Composable
 private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
     val colors = appColors()
-    SoftPanel(modifier = Modifier.testTag("ranking-stale"), innerPadding = 12.dp) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-stale")
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        innerPadding = 12.dp
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("正在显示上次数据", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
@@ -331,7 +372,11 @@ private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
 @Composable
 private fun RankingEmptyState(state: RankingUiState.Empty, request: RankingRequest, onRefresh: () -> Unit) {
     val colors = appColors()
-    SoftPanel(modifier = Modifier.testTag("ranking-empty")) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-empty")
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
         Text("这个条件下暂时没有榜单内容", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text(
             text = rankingFilterSummary(request),
@@ -356,7 +401,11 @@ private fun RankingErrorState(
     onBack: () -> Unit
 ) {
     val colors = appColors()
-    SoftPanel(modifier = Modifier.testTag("ranking-error")) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-error")
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
         Text("排行榜暂时无法读取", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text(rankingErrorCopy(error), color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -468,7 +517,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("ranking-card")
+            .testTag("ranking-card-${canonicalTestKey(entry.canonicalId)}")
             .semantics { contentDescription = description },
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = colors.warmWhite.copy(alpha = .94f)),
@@ -480,7 +529,14 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(modifier = Modifier.width(34.dp).height(112.dp), contentAlignment = Alignment.TopCenter) {
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 34.dp)
+                    .wrapContentWidth()
+                    .heightIn(min = 112.dp)
+                    .padding(end = 2.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
                 Text(
                     entry.rank?.toString() ?: "—",
                     color = colors.roseDust,
@@ -488,11 +544,18 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            DramaPoster(
-                url = entry.posterUrl,
-                title = entry.displayTitle,
-                modifier = Modifier.size(84.dp, 112.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(84.dp, 112.dp)
+                    .clearAndSetSemantics { },
+                contentAlignment = Alignment.Center
+            ) {
+                DramaPoster(
+                    url = entry.posterUrl,
+                    title = entry.displayTitle,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -501,9 +564,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     entry.displayTitle,
                     color = colors.cocoa,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.SemiBold
                 )
                 entry.originalTitle?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = colors.softGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -529,7 +590,9 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                             )
                         )
                     },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("ranking-search"),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("ranking-search-${canonicalTestKey(entry.canonicalId)}"),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                 ) { Text("去搜索", color = colors.roseDust, fontSize = 14.sp) }
             }
@@ -548,8 +611,8 @@ private fun RankingUiState.requestOrNull(): RankingRequest? = when (this) {
 }
 
 private fun rankingFilterSummary(request: RankingRequest): String = buildList {
-    add(boardOptions.firstOrNull { it.id == request.boardId }?.label ?: "当前榜单")
-    add(mediaOptions.firstOrNull { it.first == request.mediaType }?.second ?: request.mediaType.name)
+    add("榜单 ${request.boardId}")
+    add(mediaTypeLabel(request.mediaType))
     request.period?.takeIf(String::isNotBlank)?.let { add(it) }
     request.region?.takeIf(String::isNotBlank)?.let { add(it) }
     request.year?.let { add(it.toString()) }
@@ -575,3 +638,8 @@ private fun freshnessLabel(freshness: RankingFreshness): String = when (freshnes
 
 private fun formatRankingTimestamp(epochMillis: Long): String =
     java.time.Instant.ofEpochMilli(epochMillis).toString().replace('T', ' ').removeSuffix("Z")
+
+private fun canonicalTestKey(canonicalId: String): String = MessageDigest
+    .getInstance("SHA-256")
+    .digest(canonicalId.toByteArray(StandardCharsets.UTF_8))
+    .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
