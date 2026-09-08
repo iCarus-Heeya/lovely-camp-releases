@@ -1,0 +1,448 @@
+{
+  "debugFixture": true,
+  "testDataOnly": true,
+  "schemaVersion": 1,
+  "catalogId": "ranking-debug-catalog-v1",
+  "purpose": "仅用于 Debug 状态、解析和视觉测试，不代表任何真实来源、线上排名或聚合评分。",
+  "clock": "2026-09-08T00:00:00Z",
+  "scenarios": [
+    {
+      "id": "complete",
+      "expectedParse": "success",
+      "expectedAvailability": "AVAILABLE",
+      "description": "完整覆盖的 Debug 榜单，包含海报缺失时的占位路径和下一页游标。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-complete",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-complete",
+        "generatedAt": "2026-09-07T08:00:00Z",
+        "dataAsOf": "2026-09-07T07:55:00Z",
+        "expiresAt": "2026-09-20T00:00:00Z",
+        "staleUntil": "2026-09-27T00:00:00Z",
+        "freshness": "FRESH",
+        "availability": "AVAILABLE",
+        "coverage": {
+          "sourceCount": 3,
+          "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
+          "complete": true
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-b", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-c", "status": "AVAILABLE"}
+        ],
+        "items": [
+          {
+            "canonicalId": "debug-title-moonlit-archive",
+            "rank": 1,
+            "displayTitle": "月下档案",
+            "originalTitle": null,
+            "aliases": ["月下档案（调试条目）"],
+            "mediaType": "SERIES",
+            "releaseYear": 2025,
+            "countries": ["CN"],
+            "genres": ["悬疑", "剧情"],
+            "posterUrl": null,
+            "summary": "仅用于测试榜单卡片的摘要和来源覆盖文案，不是线上节目资料。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 3,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
+              "complete": true
+            },
+            "searchTitle": "月下档案"
+          },
+          {
+            "canonicalId": "debug-title-paper-city",
+            "rank": 2,
+            "displayTitle": "纸上城",
+            "originalTitle": "Paper City (debug)",
+            "aliases": ["纸上之城"],
+            "mediaType": "MOVIE",
+            "releaseYear": 2024,
+            "countries": ["US"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "用于验证原名、别名和去搜索意图的短摘要。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 3,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
+              "complete": true
+            },
+            "searchTitle": "纸上城"
+          },
+          {
+            "canonicalId": "debug-title-summer-stage",
+            "rank": 3,
+            "displayTitle": "夏日舞台",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "VARIETY",
+            "releaseYear": 2023,
+            "countries": ["JP"],
+            "genres": ["综艺"],
+            "posterUrl": null,
+            "summary": "用于验证不同媒体类型和无海报占位状态的调试条目。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 3,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
+              "complete": true
+            },
+            "searchTitle": "夏日舞台"
+          }
+        ],
+        "nextCursor": "debug-cursor-page-2"
+      }
+    },
+    {
+      "id": "partial",
+      "expectedParse": "success",
+      "expectedAvailability": "PARTIAL",
+      "description": "部分来源不可用时仍保留可验证条目。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-partial",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-partial",
+        "generatedAt": "2026-09-07T08:00:00Z",
+        "dataAsOf": "2026-09-07T07:55:00Z",
+        "expiresAt": "2026-09-20T00:00:00Z",
+        "staleUntil": "2026-09-27T00:00:00Z",
+        "freshness": "FRESH",
+        "availability": "PARTIAL",
+        "coverage": {
+          "sourceCount": 3,
+          "coveredSourceIds": ["debug-source-a", "debug-source-b"],
+          "complete": false
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-b", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-c", "status": "UNAVAILABLE", "errorCode": "NO_SNAPSHOT"}
+        ],
+        "items": [
+          {
+            "canonicalId": "debug-title-partial-one",
+            "rank": 1,
+            "displayTitle": "只来自可用来源",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "SERIES",
+            "releaseYear": 2025,
+            "countries": ["CN"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "部分覆盖状态的测试条目。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 3,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b"],
+              "complete": false
+            },
+            "searchTitle": "只来自可用来源"
+          },
+          {
+            "canonicalId": "debug-title-partial-two",
+            "rank": 2,
+            "displayTitle": "部分覆盖样例",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "MOVIE",
+            "releaseYear": 2024,
+            "countries": ["KR"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "不要把缺少来源误显示成完整榜单。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 3,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b"],
+              "complete": false
+            },
+            "searchTitle": "部分覆盖样例"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "stale",
+      "expectedParse": "success",
+      "expectedAvailability": "AVAILABLE",
+      "description": "过期但仍在 stale 窗口内的缓存，供旧数据和重试提示测试。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-stale",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-stale",
+        "generatedAt": "2026-08-28T08:00:00Z",
+        "dataAsOf": "2026-08-28T07:55:00Z",
+        "expiresAt": "2026-09-02T00:00:00Z",
+        "staleUntil": "2026-09-12T00:00:00Z",
+        "freshness": "STALE",
+        "availability": "AVAILABLE",
+        "coverage": {
+          "sourceCount": 2,
+          "coveredSourceIds": ["debug-source-a", "debug-source-b"],
+          "complete": true
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-b", "status": "AVAILABLE"}
+        ],
+        "items": [
+          {
+            "canonicalId": "debug-title-stale",
+            "rank": 1,
+            "displayTitle": "仍可阅读的旧快照",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "SERIES",
+            "releaseYear": 2022,
+            "countries": ["CN"],
+            "genres": ["悬疑"],
+            "posterUrl": null,
+            "summary": "该条目只用于显示 stale 标记和重试按钮。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 2,
+              "coveredSourceIds": ["debug-source-a", "debug-source-b"],
+              "complete": true
+            },
+            "searchTitle": "仍可阅读的旧快照"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "empty",
+      "expectedParse": "success",
+      "expectedAvailability": "EMPTY",
+      "description": "服务可读但当前条件没有条目，区别于请求失败。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-empty",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-empty",
+        "generatedAt": "2026-09-07T08:00:00Z",
+        "dataAsOf": "2026-09-07T07:55:00Z",
+        "expiresAt": "2026-09-20T00:00:00Z",
+        "staleUntil": "2026-09-27T00:00:00Z",
+        "freshness": "FRESH",
+        "availability": "EMPTY",
+        "coverage": {
+          "sourceCount": 3,
+          "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
+          "complete": true
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-b", "status": "AVAILABLE"},
+          {"sourceId": "debug-source-c", "status": "AVAILABLE"}
+        ],
+        "items": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "long-title",
+      "expectedParse": "success",
+      "expectedAvailability": "AVAILABLE",
+      "description": "长度受控但明显较长的标题，供两行截断和字体放大测试。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-long-title",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-long-title",
+        "generatedAt": "2026-09-07T08:00:00Z",
+        "dataAsOf": "2026-09-07T07:55:00Z",
+        "expiresAt": "2026-09-20T00:00:00Z",
+        "staleUntil": "2026-09-27T00:00:00Z",
+        "freshness": "FRESH",
+        "availability": "AVAILABLE",
+        "coverage": {
+          "sourceCount": 1,
+          "coveredSourceIds": ["debug-source-a"],
+          "complete": true
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"}
+        ],
+        "items": [
+          {
+            "canonicalId": "debug-title-long",
+            "rank": 1,
+            "displayTitle": "这是一个用于验证排行榜卡片在小屏幕和两百百分比字体下如何处理超长标题的调试条目名称示例",
+            "originalTitle": null,
+            "aliases": ["长标题调试条目"],
+            "mediaType": "SERIES",
+            "releaseYear": 2026,
+            "countries": ["CN"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "标题刻意较长，但仍在契约字段上限内；该内容只用于布局回归，不是节目元数据。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 1,
+              "coveredSourceIds": ["debug-source-a"],
+              "complete": true
+            },
+            "searchTitle": "这是一个用于验证排行榜卡片在小屏幕和两百百分比字体下如何处理超长标题的调试条目名称示例"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "duplicate",
+      "expectedParse": "failure",
+      "expectedError": "duplicate canonicalId",
+      "description": "故意重复 canonicalId，验证解析器拒绝不确定的榜单身份。",
+      "snapshot": {
+        "schemaVersion": 1,
+        "requestId": "debug-request-duplicate",
+        "boardId": "aggregate",
+        "filters": {
+          "period": "week",
+          "mediaType": "ALL",
+          "region": null,
+          "year": null,
+          "genre": null,
+          "language": null,
+          "limit": 20,
+          "cursor": null
+        },
+        "snapshotId": "debug-snapshot-duplicate",
+        "generatedAt": "2026-09-07T08:00:00Z",
+        "dataAsOf": "2026-09-07T07:55:00Z",
+        "expiresAt": "2026-09-20T00:00:00Z",
+        "staleUntil": "2026-09-27T00:00:00Z",
+        "freshness": "FRESH",
+        "availability": "AVAILABLE",
+        "coverage": {
+          "sourceCount": 1,
+          "coveredSourceIds": ["debug-source-a"],
+          "complete": true
+        },
+        "sourceStatuses": [
+          {"sourceId": "debug-source-a", "status": "AVAILABLE"}
+        ],
+        "items": [
+          {
+            "canonicalId": "debug-title-duplicate",
+            "rank": 1,
+            "displayTitle": "重复身份样例一",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "MOVIE",
+            "releaseYear": 2025,
+            "countries": ["CN"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "解析应在发现第二个相同身份时失败。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 1,
+              "coveredSourceIds": ["debug-source-a"],
+              "complete": true
+            },
+            "searchTitle": "重复身份样例一"
+          },
+          {
+            "canonicalId": "debug-title-duplicate",
+            "rank": 2,
+            "displayTitle": "重复身份样例二",
+            "originalTitle": null,
+            "aliases": [],
+            "mediaType": "MOVIE",
+            "releaseYear": 2025,
+            "countries": ["CN"],
+            "genres": ["剧情"],
+            "posterUrl": null,
+            "summary": "同一 canonicalId 的第二个记录只用于错误路径测试。",
+            "aggregateScore": null,
+            "sourceRatings": [],
+            "sourceRanks": [],
+            "coverage": {
+              "sourceCount": 1,
+              "coveredSourceIds": ["debug-source-a"],
+              "complete": true
+            },
+            "searchTitle": "重复身份样例二"
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  ]
+}
