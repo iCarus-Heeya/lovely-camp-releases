@@ -175,14 +175,14 @@ class RankingViewModel(
     }
 
     fun retry() {
-        activeRequest?.let { refresh(it, forceRefresh = true) }
+        activeRequest?.let { refresh(it, forceRefresh = true) } ?: refreshInitial()
     }
 
     /** Fetches the versioned service capabilities before filters become visible. */
     fun refreshCapabilities() {
         capabilitiesJob?.cancel()
         capabilitiesJob = executionScope.launch {
-            val loaded = loadCapabilitiesSafely()
+            val loaded = loadCapabilitiesSafely().getOrElse { RankingCapabilities() }
             capabilitiesReady = true
             applyCapabilities(loaded)
         }
@@ -197,8 +197,19 @@ class RankingViewModel(
         capabilitiesJob?.cancel()
         _state.value = RankingUiState.Loading(capabilities)
         capabilitiesJob = executionScope.launch {
-            val loaded = loadCapabilitiesSafely()
+            val capabilityResult = loadCapabilitiesSafely()
             capabilitiesReady = true
+            val loaded = capabilityResult.getOrElse {
+                applyCapabilities(RankingCapabilities())
+                activeRequest = null
+                _state.value = RankingUiState.Empty(
+                    capabilities = RankingCapabilities(),
+                    message = "排行榜能力暂时读取失败，请重试。",
+                    error = RankingError(RankingFailureKind.NETWORK, "Ranking capabilities unavailable", retryable = true),
+                    canRetry = true
+                )
+                return@launch
+            }
             applyCapabilities(loaded)
             val initialRequest = initialRequest(loaded)
             if (initialRequest != null) {
@@ -297,12 +308,12 @@ class RankingViewModel(
         _state.value = _state.value.withCapabilities(value)
     }
 
-    private suspend fun loadCapabilitiesSafely(): RankingCapabilities = try {
-        repository.loadCapabilities().getOrElse { RankingCapabilities() }
+    private suspend fun loadCapabilitiesSafely(): Result<RankingCapabilities> = try {
+        repository.loadCapabilities()
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Throwable) {
-        RankingCapabilities()
+        Result.failure(IllegalStateException("Ranking capabilities unavailable"))
     }
 
     private fun initialRequest(value: RankingCapabilities): RankingRequest? {
