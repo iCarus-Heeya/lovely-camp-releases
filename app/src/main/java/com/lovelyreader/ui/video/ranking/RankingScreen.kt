@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -98,57 +99,28 @@ fun RankingScreen(
     var showMoreFilters by rememberSaveable { mutableStateOf(false) }
 
     InkWashBackground(modifier.fillMaxSize()) {
-        LazyColumn(
-            state = rankingListState,
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("ranking-root"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("ranking-back")
-                            .semantics { contentDescription = "返回追剧" }
-                    ) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, tint = colors.cocoa)
-                    }
+        Column(modifier = Modifier.fillMaxSize()) {
+            RankingTopBar(onBack = onBack, onRefresh = onRefresh)
+            LazyColumn(
+                state = rankingListState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag("ranking-root"),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
                     Text(
-                        text = "排行榜",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp),
-                        color = colors.cocoa,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    IconButton(
-                        onClick = onRefresh,
+                        "排行榜数据服务接入后展示已验证内容，不把片源站点顺序当作全网热度。",
                         modifier = Modifier
-                            .size(48.dp)
-                            .testTag("ranking-refresh")
-                            .semantics { contentDescription = "刷新排行榜" }
-                    ) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.roseDust)
-                    }
+                            .fillMaxWidth()
+                            .testTag("ranking-source-note"),
+                        color = colors.softGray,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
+                    )
                 }
-            }
-            item {
-                Text(
-                    "排行榜数据服务接入后展示已验证内容，不把片源站点顺序当作全网热度。",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("ranking-source-note"),
-                    color = colors.softGray,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
-                )
-            }
-            val capabilities = state.capabilities
+                val capabilities = state.capabilities
             val supportedBoards = capabilities.normalizedBoards()
             val supportedMediaTypes = capabilities.normalizedMediaTypes()
             val supportedPeriods = capabilities.normalizedPeriods()
@@ -188,6 +160,12 @@ fun RankingScreen(
                 if (hasMoreFilters) item {
                     RankingMoreFiltersToggle(
                         expanded = showMoreFilters,
+                        selectedCount = listOf(
+                            selectedRequest.region,
+                            selectedRequest.year,
+                            selectedRequest.genre,
+                            selectedRequest.language
+                        ).count { value -> value != null && (value !is String || value.isNotBlank()) },
                         onToggle = { showMoreFilters = !showMoreFilters }
                     )
                 }
@@ -270,6 +248,7 @@ fun RankingScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -423,18 +402,62 @@ private fun RankingYearFilterRow(
 }
 
 @Composable
-private fun RankingMoreFiltersToggle(expanded: Boolean, onToggle: () -> Unit) {
+private fun RankingTopBar(onBack: () -> Unit, onRefresh: () -> Unit) {
+    val colors = appColors()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = colors.cream
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("ranking-back")
+                    .semantics { contentDescription = "返回追剧" }
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, tint = colors.cocoa)
+            }
+            Text(
+                text = "排行榜",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp),
+                color = colors.cocoa,
+                fontWeight = FontWeight.SemiBold
+            )
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("ranking-refresh")
+                    .semantics { contentDescription = "刷新排行榜" }
+            ) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.roseDust)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RankingMoreFiltersToggle(expanded: Boolean, selectedCount: Int, onToggle: () -> Unit) {
     val colors = appColors()
     OutlinedButton(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .testTag("ranking-more-filters"),
+            .testTag("ranking-more-filters")
+            .semantics {
+                contentDescription = "更多筛选，${if (expanded) "已展开" else "已收起"}${if (selectedCount > 0) "，已选 $selectedCount 项" else ""}"
+            },
         border = BorderStroke(1.dp, colors.roseBeige),
         contentPadding = PaddingValues(vertical = 10.dp)
     ) {
-        Text(if (expanded) "收起更多筛选" else "更多筛选", color = colors.roseDust, fontSize = 14.sp)
+        val suffix = if (selectedCount > 0) " · 已选 $selectedCount 项" else ""
+        Text(if (expanded) "收起更多筛选$suffix" else "更多筛选$suffix", color = colors.roseDust, fontSize = 14.sp)
     }
 }
 
@@ -776,7 +799,9 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
             Box(
                 modifier = Modifier
                     .size(84.dp, 112.dp)
-                    .clearAndSetSemantics { },
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "${entry.displayTitle} ${if (entry.posterUrl == null) "封面占位" else "封面"}"
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 DramaPoster(
@@ -793,7 +818,9 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     entry.displayTitle,
                     color = colors.cocoa,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 entry.originalTitle?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = colors.softGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -855,7 +882,8 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     },
                     modifier = Modifier
                         .heightIn(min = 48.dp)
-                        .testTag("ranking-search-${canonicalTestKey(entry.canonicalId)}"),
+                        .testTag("ranking-search-${canonicalTestKey(entry.canonicalId)}")
+                        .semantics { contentDescription = "搜索《${entry.searchTitle}》" },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                 ) { Text("去搜索", color = colors.roseDust, fontSize = 14.sp) }
             }

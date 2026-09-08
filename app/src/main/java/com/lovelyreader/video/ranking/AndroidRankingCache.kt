@@ -1,6 +1,7 @@
 package com.lovelyreader.video.ranking
 
 import android.content.SharedPreferences
+import kotlinx.coroutines.CancellationException
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import org.json.JSONArray
@@ -24,7 +25,7 @@ class AndroidRankingCache(
             remove(key)
             return@withContext null
         }
-        runCatching {
+        try {
             val envelope = JSONObject(raw)
             require(envelope.getInt("version") == CACHE_VERSION)
             val cachedAt = envelope.getLong("cachedAtMillis")
@@ -34,7 +35,9 @@ class AndroidRankingCache(
             require(envelope.has("hasMorePages"))
             val hasMorePages = envelope.getBoolean("hasMorePages")
             CachedRanking(snapshot, cachedAt, etag, hasMorePages)
-        }.getOrElse {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             remove(key)
             null
         }
