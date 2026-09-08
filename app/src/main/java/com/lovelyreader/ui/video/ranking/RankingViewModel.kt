@@ -1,0 +1,329 @@
+package com.lovelyreader.ui.video.ranking
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.lovelyreader.video.ranking.RankingAvailability
+import com.lovelyreader.video.ranking.RankingDataSource
+import com.lovelyreader.video.ranking.RankingEntry
+import com.lovelyreader.video.ranking.RankingError
+import com.lovelyreader.video.ranking.RankingFailureKind
+import com.lovelyreader.video.ranking.RankingFreshness
+import com.lovelyreader.video.ranking.RankingLoadResult
+import com.lovelyreader.video.ranking.RankingRepository
+import com.lovelyreader.video.ranking.RankingRequest
+import com.lovelyreader.video.ranking.RankingSnapshot
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+/** A one-shot bridge to the existing drama search; it contains no site URL. */
+data class RankingSearchIntent(
+    val canonicalId: String,
+    val displayTitle: String,
+    val aliases: List<String>
+)
+
+sealed interface RankingUiState {
+    data object Loading : RankingUiState
+
+    data class Content(
+        override val request: RankingRequest,
+        override val snapshot: RankingSnapshot,
+        override val items: List<RankingEntry>,
+        override val source: RankingDataSource,
+        override val nextCursor: String?,
+        override val isLoadingNextPage: Boolean = false,
+        override val lastError: RankingError? = null
+    ) : RankingSnapshotUiState
+
+    data class Refreshing(
+        override val request: RankingRequest,
+        override val snapshot: RankingSnapshot,
+        override val items: List<RankingEntry>,
+        override val source: RankingDataSource,
+        override val nextCursor: String?,
+        override val isLoadingNextPage: Boolean = false,
+        override val lastError: RankingError? = null
+    ) : RankingSnapshotUiState
+
+    data class Stale(
+        override val request: RankingRequest,
+        override val snapshot: RankingSnapshot,
+        override val items: List<RankingEntry>,
+        override val source: RankingDataSource,
+        override val nextCursor: String?,
+        override val isLoadingNextPage: Boolean = false,
+        override val lastError: RankingError? = null,
+        val canRetry: Boolean = true
+    ) : RankingSnapshotUiState
+
+    data class Partial(
+        override val request: RankingRequest,
+        override val snapshot: RankingSnapshot,
+        override val items: List<RankingEntry>,
+        override val source: RankingDataSource,
+        override val nextCursor: String?,
+        override val isLoadingNextPage: Boolean = false,
+        override val lastError: RankingError? = null
+    ) : RankingSnapshotUiState
+
+    data class Empty(
+        val request: RankingRequest? = null,
+        val snapshot: RankingSnapshot? = null,
+        val message: String = "暂无可展示的排行榜数据",
+        val error: RankingError? = null,
+        val canRetry: Boolean = false
+    ) : RankingUiState
+
+    data class Error(
+        val request: RankingRequest,
+        val error: RankingError,
+        val canRetry: Boolean
+    ) : RankingUiState
+}
+
+/** The shared, immutable portion of states that can render ranking entries. */
+sealed interface RankingSnapshotUiState : RankingUiState {
+    val request: RankingRequest
+    val snapshot: RankingSnapshot
+    val items: List<RankingEntry>
+    val source: RankingDataSource
+    val nextCursor: String?
+    val isLoadingNextPage: Boolean
+    val lastError: RankingError?
+}
+
+/**
+ * Owns ranking state only. It deliberately emits [RankingSearchIntent] instead
+ * of importing the site-specific DramaViewModel, keeping canonical ranking
+ * identity separate from the current video-source identity.
+ */
+class RankingViewModel(
+    private val repository: RankingRepository,
+    private val scope: CoroutineScope? = null
+) : ViewModel() {
+    private val _state = MutableStateFlow<RankingUiState>(RankingUiState.Empty())
+    val state: StateFlow<RankingUiState> = _state.asStateFlow()
+    val uiState: StateFlow<RankingUiState> = state
+
+    private val _searchIntent = MutableStateFlow<RankingSearchIntent?>(null)
+    private var activeRequest: RankingRequest? = null
+    private var generation = 0L
+    private var refreshJob: Job? = null
+    private var nextPageJob: Job? = null
+    private val executionScope: CoroutineScope
+        get() = scope ?: viewModelScope
+
+    fun refresh(request: RankingRequest, forceRefresh: Boolean = false) {
+        val requestGeneration = ++generation
+        activeRequest = request
+        refreshJob?.cancel()
+        nextPageJob?.cancel()
+        _state.value = refreshPresentation(request)
+        refreshJob = executionScope.launch {
+            val result = try {
+                repository.load(request, forceRefresh)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                RankingLoadResult(
+                    snapshot = null,
+                    source = RankingDataSource.EMPTY,
+                    error = RankingError(RankingFailureKind.NETWORK, "Ranking request failed", retryable = true)
+                )
+            }
+            if (requestGeneration != generation || activeRequest != request) return@launch
+            _state.value = result.toInitialState(request)
+        }
+    }
+
+    fun retry() {
+        activeRequest?.let { refresh(it, forceRefresh = true) }
+    }
+
+    fun loadNextPage() {
+        val current = _state.value as? RankingSnapshotUiState ?: return
+        val cursor = current.nextCursor ?: return
+        if (current.isLoadingNextPage || nextPageJob?.isActive == true) return
+
+        val pageGeneration = generation
+        val parentRequest = current.request
+        val parentSnapshot = current.snapshot
+        val requestContext = requestContext(parentRequest)
+        val pageRequest = parentRequest.copy(cursor = cursor)
+        _state.value = current.withPageLoading(isLoading = true)
+        nextPageJob = executionScope.launch {
+            val result = try {
+                repository.load(pageRequest)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                RankingLoadResult(
+                    snapshot = null,
+                    source = RankingDataSource.EMPTY,
+                    error = RankingError(RankingFailureKind.NETWORK, "Ranking request failed", retryable = true)
+                )
+            }
+            val active = _state.value as? RankingSnapshotUiState ?: return@launch
+            if (pageGeneration != generation || activeRequest != parentRequest ||
+                requestContext(active.request) != requestContext || active.snapshot.snapshotId != parentSnapshot.snapshotId
+            ) return@launch
+
+            val page = result.snapshot
+            if (page == null || !page.isCompatiblePage(parentRequest, pageRequest, parentSnapshot, result.source)) {
+                _state.value = active.withPageLoading(isLoading = false, error = result.error)
+                return@launch
+            }
+            val merged = mergeEntries(active.items, page.items)
+            val mergedSnapshot = page.copy(
+                filters = parentSnapshot.filters,
+                items = merged,
+                nextCursor = page.nextCursor
+            )
+            _state.value = mergedSnapshot.toPagedState(
+                request = parentRequest,
+                items = merged,
+                source = result.source,
+                error = result.error
+            )
+        }
+    }
+
+    /** Queues a one-shot search handoff for a visible entry and never opens a site detail. */
+    fun requestSearch(canonicalId: String): Boolean {
+        val visible = (_state.value as? RankingSnapshotUiState)?.items ?: return false
+        val entry = visible.firstOrNull { it.canonicalId == canonicalId } ?: return false
+        _searchIntent.value = RankingSearchIntent(
+            canonicalId = entry.canonicalId,
+            displayTitle = entry.searchTitle,
+            aliases = entry.aliases.toList()
+        )
+        return true
+    }
+
+    fun consumeSearchIntent(): RankingSearchIntent? {
+        val intent = _searchIntent.value
+        _searchIntent.value = null
+        return intent
+    }
+
+    override fun onCleared() {
+        refreshJob?.cancel()
+        nextPageJob?.cancel()
+        super.onCleared()
+    }
+
+    private fun refreshPresentation(request: RankingRequest): RankingUiState {
+        val current = _state.value as? RankingSnapshotUiState
+        return if (current != null && requestContext(current.request) == requestContext(request)) {
+            RankingUiState.Refreshing(
+                request = current.request,
+                snapshot = current.snapshot,
+                items = current.items,
+                source = current.source,
+                nextCursor = current.nextCursor,
+                lastError = current.lastError
+            )
+        } else {
+            RankingUiState.Loading
+        }
+    }
+}
+
+private fun RankingLoadResult.toInitialState(request: RankingRequest): RankingUiState {
+    val rankingSnapshot = snapshot
+    if (rankingSnapshot == null) {
+        val failure = error
+        return if (failure == null) {
+            RankingUiState.Empty(request = request)
+        } else {
+            RankingUiState.Error(request, failure, failure.retryable)
+        }
+    }
+    val data = rankingSnapshot.items
+    if (source == RankingDataSource.CACHE_STALE || rankingSnapshot.freshness == RankingFreshness.STALE) {
+        return RankingUiState.Stale(
+            request, rankingSnapshot, data, source, rankingSnapshot.nextCursor,
+            lastError = error, canRetry = error?.retryable ?: true
+        )
+    }
+    if (rankingSnapshot.availability == RankingAvailability.UNAVAILABLE) {
+        return RankingUiState.Error(
+            request,
+            error ?: RankingError(RankingFailureKind.SERVICE_UNAVAILABLE, "Ranking service is unavailable", retryable = true),
+            error?.retryable ?: true
+        )
+    }
+    if (rankingSnapshot.availability == RankingAvailability.EMPTY || data.isEmpty()) {
+        return RankingUiState.Empty(
+            request = request,
+            snapshot = rankingSnapshot,
+            error = error,
+            canRetry = error?.retryable == true
+        )
+    }
+    return if (rankingSnapshot.availability == RankingAvailability.PARTIAL) {
+        RankingUiState.Partial(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error)
+    } else {
+        RankingUiState.Content(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error)
+    }
+}
+
+private fun RankingSnapshot.isCompatiblePage(
+    parentRequest: RankingRequest,
+    pageRequest: RankingRequest,
+    parentSnapshot: RankingSnapshot,
+    source: RankingDataSource
+): Boolean {
+    if (snapshotId != parentSnapshot.snapshotId || boardId != parentRequest.boardId) return false
+    if (requestContext(filters.toRequest(boardId)) != requestContext(parentRequest)) return false
+    return filters.cursor == pageRequest.cursor || (source != RankingDataSource.NETWORK && filters.cursor == null)
+}
+
+private fun com.lovelyreader.video.ranking.RankingFilters.toRequest(boardId: String) = RankingRequest(
+    boardId = boardId,
+    period = period,
+    mediaType = mediaType,
+    region = region,
+    year = year,
+    genre = genre,
+    language = language,
+    limit = limit,
+    cursor = cursor
+)
+
+private fun requestContext(request: RankingRequest): List<Any?> = listOf(
+    request.boardId, request.period, request.mediaType, request.region, request.year,
+    request.genre, request.language, request.limit
+)
+
+private fun mergeEntries(current: List<RankingEntry>, page: List<RankingEntry>): List<RankingEntry> {
+    val ids = current.mapTo(mutableSetOf()) { it.canonicalId }
+    return current + page.filter { ids.add(it.canonicalId) }
+}
+
+private fun RankingSnapshot.toPagedState(
+    request: RankingRequest,
+    items: List<RankingEntry>,
+    source: RankingDataSource,
+    error: RankingError?
+): RankingSnapshotUiState = when {
+    source == RankingDataSource.CACHE_STALE || freshness == RankingFreshness.STALE -> RankingUiState.Stale(
+        request, this, items, source, nextCursor, lastError = error, canRetry = error?.retryable ?: true
+    )
+    availability == RankingAvailability.PARTIAL -> RankingUiState.Partial(
+        request, this, items, source, nextCursor, lastError = error
+    )
+    else -> RankingUiState.Content(request, this, items, source, nextCursor, lastError = error)
+}
+
+private fun RankingSnapshotUiState.withPageLoading(isLoading: Boolean, error: RankingError? = lastError): RankingSnapshotUiState = when (this) {
+    is RankingUiState.Content -> copy(isLoadingNextPage = isLoading, lastError = error)
+    is RankingUiState.Refreshing -> copy(isLoadingNextPage = isLoading, lastError = error)
+    is RankingUiState.Stale -> copy(isLoadingNextPage = isLoading, lastError = error)
+    is RankingUiState.Partial -> copy(isLoadingNextPage = isLoading, lastError = error)
+}
