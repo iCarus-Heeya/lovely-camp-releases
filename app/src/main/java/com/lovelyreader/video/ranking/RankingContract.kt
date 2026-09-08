@@ -56,8 +56,11 @@ private fun capabilityYears(root: JSONObject): List<Int> {
     return years
 }
 private fun coverage(o: JSONObject): RankingCoverage {
-    val count = intNumber(o, "sourceCount", 0)
-    val ids = strings(o.optJSONArray("coveredSourceIds"), "coveredSourceId")
+    val count = intNumber(o, "sourceCount", 1)
+    require(o.has("coveredSourceIds") && !o.isNull("coveredSourceIds")) { "missing coveredSourceIds" }
+    val covered = o.get("coveredSourceIds")
+    require(covered is JSONArray) { "coveredSourceIds must be array" }
+    val ids = strings(covered, "coveredSourceId")
     require(ids.distinct().size == ids.size) { "duplicate covered source id" }
     require(count >= ids.size) { "invalid coverage" }
     val complete = if (!o.has("complete")) false else o.get("complete") as? Boolean ?: error("complete must be boolean")
@@ -187,6 +190,10 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         RankingSourceStatus(sourceId, health, errorCode)
     }
     require(cov.coveredSourceIds.all(statusIds::contains)) { "coverage source has no status" }
+    val statusById = statuses.associateBy { it.sourceId }
+    require(cov.coveredSourceIds.all { statusById[it]?.status == RankingSourceHealth.AVAILABLE }) {
+        "coverage includes unavailable source"
+    }
     require(statusIds.size <= cov.sourceCount) { "too many source statuses" }
     val itemsJson = root.optJSONArray("items") ?: error("missing items")
     val seenIds = mutableSetOf<String>(); val seenRanks = mutableSetOf<Int>(); val items = (0 until itemsJson.length()).map { i ->
@@ -215,10 +222,10 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         RankingAvailability.PARTIAL -> require(items.isNotEmpty() && !cov.complete && hasUnavailableSource) {
             "partial snapshot must contain entries and an incomplete unhealthy source set"
         }
-        RankingAvailability.EMPTY -> require(items.isEmpty() && !hasUnavailableSource) {
+        RankingAvailability.EMPTY -> require(items.isEmpty() && allSourcesAvailable) {
             "empty snapshot must contain no entries and no unavailable sources"
         }
-        RankingAvailability.UNAVAILABLE -> require(items.isEmpty() && hasUnavailableSource) {
+        RankingAvailability.UNAVAILABLE -> require(items.isEmpty() && !cov.complete && hasUnavailableSource) {
             "unavailable snapshot must contain no entries and an unavailable source"
         }
     }
