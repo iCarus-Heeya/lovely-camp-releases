@@ -217,7 +217,7 @@ class RankingRepositoryTest {
         expiresAt = InstantLike(expiresAt),
         staleUntil = InstantLike(staleUntil),
         freshness = RankingFreshness.FRESH,
-        availability = RankingAvailability.AVAILABLE,
+        availability = RankingAvailability.EMPTY,
         coverage = RankingCoverage(1, listOf("source"), true),
         sourceStatuses = listOf(RankingSourceStatus("source", RankingSourceHealth.AVAILABLE)),
         items = emptyList(),
@@ -228,7 +228,7 @@ class RankingRepositoryTest {
         {"schemaVersion":1,"requestId":"request-1","boardId":"popular",
         "filters":{"period":"week","mediaType":"SERIES","region":"CN","year":2026,"genre":"drama","language":"zh-CN","limit":20,"cursor":null},
         "snapshotId":"snapshot-1","generatedAt":"1970-01-01T00:00:00.500Z","dataAsOf":"1970-01-01T00:00:00.400Z",
-        "expiresAt":"1970-01-01T00:00:02Z","staleUntil":"1970-01-01T00:00:03Z","freshness":"FRESH","availability":"AVAILABLE",
+        "expiresAt":"1970-01-01T00:00:02Z","staleUntil":"1970-01-01T00:00:03Z","freshness":"FRESH","availability":"EMPTY",
         "coverage":{"sourceCount":1,"coveredSourceIds":["source"],"complete":true},
         "sourceStatuses":[{"sourceId":"source","status":"AVAILABLE"}],"items":[],"nextCursor":null}
     """.trimIndent()

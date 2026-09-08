@@ -177,11 +177,14 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         val errorCode = optionalText(s, "errorCode")?.let { code ->
             runCatching { RankingErrorCode.valueOf(code) }.getOrElse { error("invalid errorCode") }
         }
-        RankingSourceStatus(
-            sourceId,
-            runCatching { RankingSourceHealth.valueOf(requiredText(s, "status")) }.getOrElse { error("invalid source status") },
-            errorCode
-        )
+        val health = runCatching { RankingSourceHealth.valueOf(requiredText(s, "status")) }
+            .getOrElse { error("invalid source status") }
+        if (health == RankingSourceHealth.AVAILABLE) {
+            require(errorCode == null) { "available source cannot carry an error code" }
+        } else {
+            require(errorCode != null) { "unavailable source must carry an error code" }
+        }
+        RankingSourceStatus(sourceId, health, errorCode)
     }
     require(cov.coveredSourceIds.all(statusIds::contains)) { "coverage source has no status" }
     require(statusIds.size <= cov.sourceCount) { "too many source statuses" }
@@ -201,6 +204,23 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         require(itemRatings.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rating source is not covered" }
         require(itemRanks.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rank source is not covered" }
         RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), null, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else aggregateScore(e, "aggregateScore"), itemRatings, itemRanks, itemCoverage, requiredText(e, "searchTitle"))
+    }
+    val allSourcesAvailable = cov.complete && cov.sourceCount == statuses.size &&
+        statuses.all { status -> status.status == RankingSourceHealth.AVAILABLE }
+    val hasUnavailableSource = statuses.any { status -> status.status != RankingSourceHealth.AVAILABLE }
+    when (availability) {
+        RankingAvailability.AVAILABLE -> require(items.isNotEmpty() && allSourcesAvailable) {
+            "available snapshot must contain entries and complete healthy sources"
+        }
+        RankingAvailability.PARTIAL -> require(items.isNotEmpty() && !cov.complete && hasUnavailableSource) {
+            "partial snapshot must contain entries and an incomplete unhealthy source set"
+        }
+        RankingAvailability.EMPTY -> require(items.isEmpty() && !hasUnavailableSource) {
+            "empty snapshot must contain no entries and no unavailable sources"
+        }
+        RankingAvailability.UNAVAILABLE -> require(items.isEmpty() && hasUnavailableSource) {
+            "unavailable snapshot must contain no entries and an unavailable source"
+        }
     }
     val methodologyVersion = optionalText(root, "methodologyVersion")
     val identityMapVersion = optionalText(root, "identityMapVersion")
