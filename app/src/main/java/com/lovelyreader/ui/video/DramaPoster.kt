@@ -29,7 +29,12 @@ import java.net.URL
 
 /** A small, memory-only poster loader for metadata already exposed by a title card. */
 @Composable
-fun DramaPoster(url: String?, title: String, modifier: Modifier = Modifier) {
+fun DramaPoster(
+    url: String?,
+    title: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
     val context = LocalContext.current
     val fixtureAsset = url?.takeIf { it.startsWith("fixture://") }?.removePrefix("fixture://")
     val safeUrl = url?.takeIf(::isSafeDramaPosterUrl)
@@ -49,7 +54,7 @@ fun DramaPoster(url: String?, title: String, modifier: Modifier = Modifier) {
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = "$title 封面",
-            contentScale = ContentScale.Crop,
+            contentScale = contentScale,
             modifier = modifier
         )
     } else {
