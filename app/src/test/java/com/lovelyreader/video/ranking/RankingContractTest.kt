@@ -37,6 +37,9 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[::1]/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[fd00::1]/poster.jpg"), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://127.1/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://2130706433/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[::ffff:127.0.0.1]/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[::FFFF:7f00:1]/poster.jpg"), now).isFailure)
     }
 
     @Test fun `rejects integer fields that overflow Int`() {
