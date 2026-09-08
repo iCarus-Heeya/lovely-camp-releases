@@ -123,7 +123,6 @@ import com.lovelyreader.ui.video.ranking.RankingScreen
 import com.lovelyreader.ui.video.ranking.RankingSearchIntent
 import com.lovelyreader.ui.video.ranking.RankingUiState
 import com.lovelyreader.ui.video.ranking.RankingViewModel
-import com.lovelyreader.ui.video.ranking.defaultRankingRequest
 
 @Composable
 fun DramaScreen(
@@ -183,10 +182,7 @@ fun DramaScreen(
 
     LaunchedEffect(page, rankingViewModel) {
         if (page == DramaPage.Rankings && rankingViewModel != null) {
-            rankingViewModel.refreshCapabilities()
-            if (rankingState is RankingUiState.Empty && rankingState.request == null) {
-                rankingViewModel.refresh(defaultRankingRequest())
-            }
+            rankingViewModel.refreshInitial()
         }
     }
 
@@ -254,6 +250,10 @@ fun DramaScreen(
             onRefresh = { rankingViewModel?.retry() },
             onRequest = { request -> rankingViewModel?.refresh(request) },
             onLoadNextPage = { rankingViewModel?.loadNextPage() },
+            onOpenSearch = {
+                rankingSearchOrigin = false
+                page = DramaPage.Home
+            },
             onSearch = { intent ->
                 rankingSearchOrigin = true
                 page = DramaPage.Home

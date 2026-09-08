@@ -9,6 +9,7 @@ import com.lovelyreader.video.ranking.RankingDataSource
 import com.lovelyreader.video.ranking.RankingEntry
 import com.lovelyreader.video.ranking.RankingError
 import com.lovelyreader.video.ranking.RankingFailureKind
+import com.lovelyreader.video.ranking.RankingFilterOption
 import com.lovelyreader.video.ranking.RankingFilters
 import com.lovelyreader.video.ranking.RankingFreshness
 import com.lovelyreader.video.ranking.RankingLoadResult
@@ -52,6 +53,66 @@ class RankingViewModelTest {
         assertEquals(capabilities, viewModel.capabilities)
         assertEquals(capabilities, viewModel.state.value.capabilities)
         assertTrue(viewModel.state.value.capabilities.hasVerifiedFilters)
+    }
+
+    @Test
+    fun `initial refresh waits for handshake and uses only declared dimensions`() = runTest {
+        val capabilities = RankingCapabilities(
+            supportedBoards = listOf(RankingBoardOption("popular", "热度")),
+            supportedMediaTypes = listOf(RankingMediaType.SERIES),
+            supportedPeriods = listOf(RankingFilterOption("month", "本月")),
+            supportedRegions = listOf(RankingFilterOption("CN", "中国")),
+            supportedYears = listOf(2026),
+            supportedGenres = listOf(RankingFilterOption("drama", "剧情")),
+            supportedLanguages = listOf(RankingFilterOption("zh-CN", "中文"))
+        )
+        val repository = object : RankingRepository {
+            val requests = mutableListOf<RankingRequest>()
+            override suspend fun loadCapabilities(): Result<RankingCapabilities> = Result.success(capabilities)
+            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult {
+                requests += request
+                return RankingLoadResult(
+                    snapshot(
+                        mediaType = RankingMediaType.SERIES,
+                        items = listOf(entry("declared")),
+                    ).copy(
+                        filters = RankingFilters("month", RankingMediaType.SERIES, null, null, null, null, 20, null)
+                    ),
+                    RankingDataSource.NETWORK
+                )
+            }
+        }
+        val viewModel = RankingViewModel(repository, this)
+
+        viewModel.refreshInitial()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.requests.size)
+        assertEquals(
+            RankingRequest("popular", "month", RankingMediaType.SERIES, null, null, null, null, 20, null),
+            repository.requests.single()
+        )
+        assertTrue(viewModel.state.value is RankingUiState.Content)
+    }
+
+    @Test
+    fun `initial refresh does not call ranking endpoint when capability handshake is empty`() = runTest {
+        var loads = 0
+        val repository = object : RankingRepository {
+            override suspend fun loadCapabilities(): Result<RankingCapabilities> = Result.success(RankingCapabilities())
+            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult {
+                loads++
+                return RankingLoadResult(null, RankingDataSource.EMPTY)
+            }
+        }
+        val viewModel = RankingViewModel(repository, this)
+
+        viewModel.refreshInitial()
+        advanceUntilIdle()
+
+        assertEquals(0, loads)
+        val state = viewModel.state.value as RankingUiState.Empty
+        assertTrue(state.message.contains("未接入"))
     }
 
     @Test

@@ -29,6 +29,32 @@ private fun intNumber(o: JSONObject, n: String, min: Int = Int.MIN_VALUE, max: I
 private fun rank(v: Int?, name: String): Int? { if (v != null) require(v >= 1) { "invalid $name" }; return v }
 private fun array(o: JSONObject, n: String): JSONArray? { if (!o.has(n) || o.isNull(n)) return null; return o.get(n) as? JSONArray ?: error("$n must be array") }
 private fun strings(a: JSONArray?, name: String): List<String> = (0 until (a?.length() ?: 0)).map { text(a!!.get(it) as? String ?: error("$name must be text"), name)!! }
+private const val MAX_CAPABILITY_OPTIONS = 64
+private fun capabilityOptions(root: JSONObject, name: String): List<RankingFilterOption> {
+    val values = array(root, name) ?: return emptyList()
+    require(values.length() <= MAX_CAPABILITY_OPTIONS) { "too many $name" }
+    val ids = mutableSetOf<String>()
+    return (0 until values.length()).map { index ->
+        val option = values.getJSONObject(index)
+        val id = requiredText(option, "id")
+        val label = requiredText(option, "label")
+        require(ids.add(id)) { "duplicate $name id" }
+        RankingFilterOption(id, label)
+    }
+}
+private fun capabilityYears(root: JSONObject): List<Int> {
+    val values = array(root, "years") ?: return emptyList()
+    require(values.length() <= MAX_CAPABILITY_OPTIONS) { "too many years" }
+    val years = (0 until values.length()).map { index ->
+        val value = values.get(index)
+        require(value is Number) { "years must be numbers" }
+        val number = value.toDouble()
+        require(number.isFinite() && number == number.toInt().toDouble()) { "years must be integers" }
+        number.toInt().also { require(it in 1800..2200) { "year out of range" } }
+    }
+    require(years.distinct().size == years.size) { "duplicate year" }
+    return years
+}
 private fun coverage(o: JSONObject): RankingCoverage {
     val count = intNumber(o, "sourceCount", 0)
     val ids = strings(o.optJSONArray("coveredSourceIds"), "coveredSourceId")
@@ -70,7 +96,16 @@ fun parseRankingCapabilities(raw: String, expectedSchemaVersion: Int = 1): Resul
     val mediaTypes = (0 until mediaJson.length()).map { index ->
         media(mediaJson.getString(index))
     }.also { require(it.distinct().size == it.size) { "duplicate media type" } }
-    RankingCapabilities(expectedSchemaVersion, boards, mediaTypes)
+    RankingCapabilities(
+        schemaVersion = expectedSchemaVersion,
+        supportedBoards = boards,
+        supportedMediaTypes = mediaTypes,
+        supportedPeriods = capabilityOptions(root, "periods"),
+        supportedRegions = capabilityOptions(root, "regions"),
+        supportedYears = capabilityYears(root),
+        supportedGenres = capabilityOptions(root, "genres"),
+        supportedLanguages = capabilityOptions(root, "languages")
+    )
 }
 
 fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis(), expectedSchemaVersion: Int = 1): Result<RankingSnapshot> = runCatching {
