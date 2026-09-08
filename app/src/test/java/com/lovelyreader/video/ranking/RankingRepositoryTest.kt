@@ -96,6 +96,20 @@ class RankingRepositoryTest {
     }
 
     @Test
+    fun `not modified with opaque pagination cache is treated as malformed`() = runTest {
+        val cached = snapshot(expiresAt = 900, staleUntil = 2_000).copy(nextCursor = "opaque-next")
+        val result = DefaultRankingRepository(
+            QueueTransport(response(304, null, etag = "etag-1", contentType = null)),
+            FakeCache(CachedRanking(cached, 800, "etag-1", hasMorePages = true)),
+            clockMillis = { 1_000 }
+        ).load(request, forceRefresh = true)
+
+        assertNull(result.snapshot)
+        assertEquals(RankingDataSource.EMPTY, result.source)
+        assertEquals(RankingFailureKind.MALFORMED_RESPONSE, result.error?.kind)
+    }
+
+    @Test
     fun `failed persistence keeps the new network snapshot successful`() = runTest {
         val cache = object : RankingCache {
             override suspend fun read(key: String) = CachedRanking(snapshot(900, 3_000), 800)

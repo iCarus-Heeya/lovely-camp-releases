@@ -231,6 +231,7 @@ class RankingTransportPolicyTest {
         assertFalse(preferences.all.toString().contains("next-page-secret"))
         assertEquals(null, restored?.snapshot?.filters?.cursor)
         assertEquals(null, restored?.snapshot?.nextCursor)
+        assertTrue(restored?.hasMorePages == true)
     }
 
     @Test

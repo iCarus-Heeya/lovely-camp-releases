@@ -31,9 +31,10 @@ class AndroidRankingCache(
             val cachedAt = envelope.getLong("cachedAtMillis")
             require(cachedAt in 0..clockMillis())
             val etag = if (envelope.isNull("etag")) null else safeEtag(envelope.getString("etag"))
-            val snapshot = parseRankingSnapshot(envelope.getJSONObject("snapshot").toString(), clockMillis()).getOrThrow()
-            require(envelope.has("hasMorePages"))
-            val hasMorePages = envelope.getBoolean("hasMorePages")
+            val snapshotJson = envelope.getJSONObject("snapshot")
+            require(snapshotJson.has("hasMorePages"))
+            val hasMorePages = snapshotJson.getBoolean("hasMorePages")
+            val snapshot = parseRankingSnapshot(snapshotJson.toString(), clockMillis()).getOrThrow()
             CachedRanking(snapshot, cachedAt, etag, hasMorePages)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -53,7 +54,6 @@ class AndroidRankingCache(
             .put("version", CACHE_VERSION)
             .put("cachedAtMillis", cachedAtMillis)
             .put("etag", safeEtag(etag) ?: JSONObject.NULL)
-            .put("hasMorePages", snapshot.nextCursor != null)
             .put("snapshot", snapshot.toCacheJson())
             .toString()
         require(envelope.toByteArray(StandardCharsets.UTF_8).size <= maxEntryBytes) { "ranking cache entry is oversized" }
@@ -75,7 +75,7 @@ class AndroidRankingCache(
 private fun RankingSnapshot.toCacheJson(): JSONObject = copy(
     filters = filters.copy(cursor = null),
     nextCursor = null
-).toJson()
+).toJson().put("hasMorePages", nextCursor != null)
 
 private fun RankingSnapshot.toJson() = JSONObject()
     .put("schemaVersion", schemaVersion)
@@ -149,6 +149,6 @@ private fun SourceRank.toJson() = JSONObject()
 
 private fun InstantLike.iso(): String = Instant.ofEpochMilli(epochMillis).toString()
 
-private const val CACHE_VERSION = 2
+private const val CACHE_VERSION = 3
 private const val DEFAULT_MAX_CACHE_ENTRY_BYTES = 512 * 1024
 private const val MAX_ALLOWED_CACHE_ENTRY_BYTES = 2 * 1024 * 1024
