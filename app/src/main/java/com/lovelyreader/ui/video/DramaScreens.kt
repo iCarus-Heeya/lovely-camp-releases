@@ -154,6 +154,7 @@ fun DramaScreen(
     }
     var page by remember { mutableStateOf(DramaPage.Home) }
     var detailOrigin by remember { mutableStateOf(DramaPage.Home) }
+    var rankingSearchOrigin by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
     val homeListState = rememberLazyListState()
     val rankingListState = rememberLazyListState()
@@ -171,7 +172,13 @@ fun DramaScreen(
     // drama root. The shared experience switch is the previous surface, so
     // return there just like Search/Settings return to the bookshelf.
     BackHandler(enabled = shouldHandleDramaHomeSystemBack(page)) {
-        onHomeBack()
+        val returnPage = dramaHomeBackDestination(page, rankingSearchOrigin)
+        if (returnPage != null) {
+            rankingSearchOrigin = false
+            page = returnPage
+        } else {
+            onHomeBack()
+        }
     }
 
     LaunchedEffect(page, rankingViewModel) {
@@ -193,14 +200,21 @@ fun DramaScreen(
                 viewModel.resumeRecentViewing()
                 page = DramaPage.Player
             },
-            onSearch = viewModel::search,
+            onSearch = { queryText ->
+                rankingSearchOrigin = false
+                viewModel.search(queryText)
+            },
             onRetrySearch = viewModel::retrySearch,
             onOpenTitle = {
                 viewModel.openTitle(it)
-                detailOrigin = DramaPage.Home
+                detailOrigin = if (rankingSearchOrigin) DramaPage.Rankings else DramaPage.Home
+                rankingSearchOrigin = false
                 page = DramaPage.Detail
             },
-            onOpenRankings = { page = DramaPage.Rankings },
+            onOpenRankings = {
+                rankingSearchOrigin = false
+                page = DramaPage.Rankings
+            },
             onOpenDownloads = {
                 viewModel.refreshDownloads()
                 page = DramaPage.Downloads
@@ -240,6 +254,7 @@ fun DramaScreen(
             onRequest = { request -> rankingViewModel?.refresh(request) },
             onLoadNextPage = { rankingViewModel?.loadNextPage() },
             onSearch = { intent ->
+                rankingSearchOrigin = true
                 page = DramaPage.Home
                 onRankingSearch(intent)
             },
@@ -288,6 +303,9 @@ internal fun dramaBackDestination(page: DramaPage, detailOrigin: DramaPage = Dra
 }
 
 internal fun shouldHandleDramaHomeSystemBack(page: DramaPage): Boolean = page == DramaPage.Home
+
+internal fun dramaHomeBackDestination(page: DramaPage, rankingSearchOrigin: Boolean): DramaPage? =
+    if (page == DramaPage.Home && rankingSearchOrigin) DramaPage.Rankings else null
 
 @Composable
 fun DramaHomeScreen(
@@ -436,7 +454,7 @@ internal fun DramaHomeStyledScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text("排行榜", color = colors.cocoa, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        Text("按真实数据能力发现新剧", color = colors.softGray, fontSize = 12.sp)
+                        Text("等待排行榜数据服务接入", color = colors.softGray, fontSize = 12.sp)
                     }
                     Text("›", color = colors.roseDust, fontSize = 22.sp)
                 }

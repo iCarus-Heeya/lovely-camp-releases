@@ -3,6 +3,7 @@ package com.lovelyreader.ui.video.ranking
 import com.lovelyreader.ui.MainTab
 import com.lovelyreader.ui.video.DramaPage
 import com.lovelyreader.ui.video.dramaBackDestination
+import com.lovelyreader.ui.video.dramaHomeBackDestination
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -16,6 +17,16 @@ class RankingNavigationPolicyTest {
         assertEquals(DramaPage.Rankings, dramaBackDestination(DramaPage.Detail, DramaPage.Rankings))
         assertEquals(DramaPage.Detail, dramaBackDestination(DramaPage.Player))
         assertNull(dramaBackDestination(DramaPage.Home))
+    }
+
+    @Test
+    fun `search entered from rankings returns to rankings before leaving drama`() {
+        assertEquals(
+            DramaPage.Rankings,
+            dramaHomeBackDestination(DramaPage.Home, rankingSearchOrigin = true)
+        )
+        assertNull(dramaHomeBackDestination(DramaPage.Home, rankingSearchOrigin = false))
+        assertNull(dramaHomeBackDestination(DramaPage.Rankings, rankingSearchOrigin = true))
     }
 
     @Test
