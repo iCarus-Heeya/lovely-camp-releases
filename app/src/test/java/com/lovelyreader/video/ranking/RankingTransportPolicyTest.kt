@@ -245,6 +245,18 @@ class RankingTransportPolicyTest {
         assertFalse(oversized.contains(key))
     }
 
+    @Test
+    fun `android cache read propagates cancellation instead of deleting the entry`() {
+        assertThrows(CancellationException::class.java) {
+            runTest {
+                AndroidRankingCache(
+                    MemoryPreferences(readFailure = CancellationException("cancelled")),
+                    clockMillis = { 1_000 }
+                ).read(rankingCacheKey(request))
+            }
+        }
+    }
+
     private fun cacheSnapshot() = RankingSnapshot(
         schemaVersion = 1,
         requestId = "request-cache",
@@ -290,12 +302,16 @@ class RankingTransportPolicyTest {
     }
 
     private class MemoryPreferences(
-        private val values: MutableMap<String, Any?> = mutableMapOf()
+        private val values: MutableMap<String, Any?> = mutableMapOf(),
+        private val readFailure: Throwable? = null
     ) : SharedPreferences {
         var commitCount = 0
         var commitThread: Thread? = null
         override fun getAll(): MutableMap<String, *> = values.toMutableMap()
-        override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
+        override fun getString(key: String?, defValue: String?): String? {
+            readFailure?.let { throw it }
+            return values[key] as? String ?: defValue
+        }
         @Suppress("UNCHECKED_CAST")
         override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
             (values[key] as? Set<String>)?.toMutableSet() ?: defValues
