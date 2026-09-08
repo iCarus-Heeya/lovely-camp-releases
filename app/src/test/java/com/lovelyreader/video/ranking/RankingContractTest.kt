@@ -192,4 +192,23 @@ class RankingContractTest {
             .replace("\"complete\":true", "\"complete\":false")
         assertTrue(parseRankingSnapshot(missingErrorCode, now).isFailure)
     }
+
+    @Test fun `rejects missing or inconsistent coverage source declarations`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("\"coveredSourceIds\":[\"a\",\"b\"]", "\"coveredSourceIds\":null"), now).isFailure)
+        val emptyWithoutSources = fixture.substringBefore("\"items\":[")
+            .replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"EMPTY\"")
+            .replace("\"sourceCount\":2,\"coveredSourceIds\":[\"a\",\"b\"],\"complete\":true", "\"sourceCount\":1,\"coveredSourceIds\":[\"a\"],\"complete\":true")
+            .replace("\"sourceStatuses\":[{\"sourceId\":\"a\",\"status\":\"AVAILABLE\"},{\"sourceId\":\"b\",\"status\":\"AVAILABLE\"}]", "\"sourceStatuses\":[]") +
+            "\"items\":[],\"nextCursor\":null}"
+        assertTrue(parseRankingSnapshot(emptyWithoutSources, now).isFailure)
+    }
+
+    @Test fun `rejects partial coverage that claims an unavailable source contributed`() {
+        val partial = fixture
+            .replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"PARTIAL\"")
+            .replace("\"sourceId\":\"b\",\"status\":\"AVAILABLE\"", "\"sourceId\":\"b\",\"status\":\"UNAVAILABLE\",\"errorCode\":\"NO_SNAPSHOT\"")
+            .replace("\"coveredSourceIds\":[\"a\",\"b\"]", "\"coveredSourceIds\":[\"a\",\"b\"]")
+            .replace("\"complete\":true", "\"complete\":false")
+        assertTrue(parseRankingSnapshot(partial, now).isFailure)
+    }
 }
