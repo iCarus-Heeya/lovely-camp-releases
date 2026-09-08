@@ -17,6 +17,20 @@ class RankingContractTest {
         assertEquals("snap-1", snapshot.snapshotId)
         assertEquals("next", snapshot.nextCursor)
         assertEquals(8.5, snapshot.items.single().aggregateScore!!, 0.0)
+        assertTrue(parseRankingSnapshot(fixture.replace(",\"originalTitle\":\"Example\"", "").replace(",\"summary\":\"summary\"", "").replace(",\"posterUrl\":\"https://img.example/poster.jpg\"", ""), now).isSuccess)
+    }
+
+    @Test fun `rejects private poster, oversized or non-string optional text`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://127.0.0.1/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"summary\":\"summary\"", "\"summary\":\"${"x".repeat(5001)}\""), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"summary\":\"summary\"", "\"summary\":42"), now).isFailure)
+    }
+
+    @Test fun `rejects numeric strings non integer ranks and non finite scores`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("\"rank\":1", "\"rank\":1.5"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"aggregateScore\":8.5", "\"aggregateScore\":\"8.5\""), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"aggregateScore\":8.5", "\"aggregateScore\":null"), now).isSuccess)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"limit\":20", "\"limit\":51"), now).isFailure)
     }
 
     @Test fun `ignores unknown fields`() {
