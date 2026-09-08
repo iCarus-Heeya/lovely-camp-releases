@@ -9,6 +9,29 @@ enum class RankingAvailability { AVAILABLE, PARTIAL, EMPTY, UNAVAILABLE }
 enum class RankingSourceHealth { AVAILABLE, DEGRADED, UNAVAILABLE }
 enum class RankingErrorCode { BAD_REQUEST, NOT_FOUND, SNAPSHOT_EXPIRED, RATE_LIMITED, NO_SNAPSHOT, PARSE_ERROR }
 
+/**
+ * Server-declared ranking capabilities. The client must not invent boards or
+ * media filters when this contract is empty or unavailable.
+ */
+data class RankingBoardOption(val id: String, val label: String)
+
+data class RankingCapabilities(
+    val schemaVersion: Int = 1,
+    val supportedBoards: List<RankingBoardOption> = emptyList(),
+    val supportedMediaTypes: List<RankingMediaType> = emptyList()
+) {
+    fun normalizedBoards(): List<RankingBoardOption> = supportedBoards
+        .asSequence()
+        .filter { it.id.isNotBlank() }
+        .distinctBy { it.id }
+        .toList()
+
+    fun normalizedMediaTypes(): List<RankingMediaType> = supportedMediaTypes.distinct()
+
+    val hasVerifiedFilters: Boolean
+        get() = normalizedBoards().isNotEmpty() || normalizedMediaTypes().isNotEmpty()
+}
+
 data class RankingRequest(
     val boardId: String, val period: String?, val mediaType: RankingMediaType,
     val region: String?, val year: Int?, val genre: String?, val language: String?,

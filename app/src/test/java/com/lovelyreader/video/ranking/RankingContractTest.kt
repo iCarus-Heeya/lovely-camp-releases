@@ -20,6 +20,33 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace(",\"originalTitle\":\"Example\"", "").replace(",\"summary\":\"summary\"", "").replace(",\"posterUrl\":\"https://img.example/poster.jpg\"", ""), now).isSuccess)
     }
 
+    @Test fun `parses versioned capabilities and exposes only declared filters`() {
+        val result = parseRankingCapabilities(
+            """
+            {"schemaVersion":1,"boards":[{"id":"aggregate","label":"综合参考"}],"mediaTypes":["SERIES"]}
+            """.trimIndent()
+        )
+        assertTrue(result.isSuccess)
+        val capabilities = result.getOrThrow()
+        assertEquals(listOf(RankingBoardOption("aggregate", "综合参考")), capabilities.supportedBoards)
+        assertEquals(listOf(RankingMediaType.SERIES), capabilities.supportedMediaTypes)
+        assertTrue(capabilities.hasVerifiedFilters)
+    }
+
+    @Test fun `rejects duplicate or unsupported capability declarations`() {
+        assertTrue(
+            parseRankingCapabilities(
+                """{"schemaVersion":1,"boards":[{"id":"aggregate","label":"A"},{"id":"aggregate","label":"B"}],"mediaTypes":[]}"""
+            ).isFailure
+        )
+        assertTrue(
+            parseRankingCapabilities(
+                """{"schemaVersion":1,"boards":[],"mediaTypes":["SERIES","SERIES"]}"""
+            ).isFailure
+        )
+        assertTrue(parseRankingCapabilities("""{"schemaVersion":2,"boards":[],"mediaTypes":[]}""").isFailure)
+    }
+
     @Test fun `ranking posters remain placeholders until address bound redirect safe loading exists`() {
         listOf("https://img.example/poster.jpg", "https://8.8.8.8/poster.jpg", "https://[2001:4860:4860::8888]/poster.jpg").forEach { poster ->
             val snapshot = parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", poster), now).getOrThrow()

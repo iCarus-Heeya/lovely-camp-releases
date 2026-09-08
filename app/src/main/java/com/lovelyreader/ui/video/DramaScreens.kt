@@ -182,10 +182,11 @@ fun DramaScreen(
     }
 
     LaunchedEffect(page, rankingViewModel) {
-        if (page == DramaPage.Rankings && rankingViewModel != null &&
-            rankingState is RankingUiState.Empty && rankingState.request == null
-        ) {
-            rankingViewModel.refresh(defaultRankingRequest())
+        if (page == DramaPage.Rankings && rankingViewModel != null) {
+            rankingViewModel.refreshCapabilities()
+            if (rankingState is RankingUiState.Empty && rankingState.request == null) {
+                rankingViewModel.refresh(defaultRankingRequest())
+            }
         }
     }
 

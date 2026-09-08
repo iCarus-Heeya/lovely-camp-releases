@@ -51,6 +51,28 @@ fun validateRankingRequest(request: RankingRequest): Result<RankingRequest> = ru
     request.cursor?.let { text(it, "cursor") }; request
 }
 
+/** Parse the versioned capability handshake before any filter is rendered. */
+fun parseRankingCapabilities(raw: String, expectedSchemaVersion: Int = 1): Result<RankingCapabilities> = runCatching {
+    val root = JSONObject(raw)
+    require(root.optInt("schemaVersion", -1) == expectedSchemaVersion) { "unsupported capabilities schema" }
+    val boardsJson = root.optJSONArray("boards") ?: JSONArray()
+    require(boardsJson.length() <= 64) { "too many boards" }
+    val boardIds = mutableSetOf<String>()
+    val boards = (0 until boardsJson.length()).map { index ->
+        val board = boardsJson.getJSONObject(index)
+        val id = requiredText(board, "id")
+        val label = requiredText(board, "label")
+        require(boardIds.add(id)) { "duplicate board id" }
+        RankingBoardOption(id, label)
+    }
+    val mediaJson = root.optJSONArray("mediaTypes") ?: JSONArray()
+    require(mediaJson.length() <= RankingMediaType.entries.size) { "too many media types" }
+    val mediaTypes = (0 until mediaJson.length()).map { index ->
+        media(mediaJson.getString(index))
+    }.also { require(it.distinct().size == it.size) { "duplicate media type" } }
+    RankingCapabilities(expectedSchemaVersion, boards, mediaTypes)
+}
+
 fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis(), expectedSchemaVersion: Int = 1): Result<RankingSnapshot> = runCatching {
     val root = JSONObject(raw)
     require(number(root, "schemaVersion", true).toInt() == expectedSchemaVersion) { "unsupported schema" }

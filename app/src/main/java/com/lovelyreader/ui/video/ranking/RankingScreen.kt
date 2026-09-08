@@ -53,6 +53,8 @@ import com.lovelyreader.ui.InkWashBackground
 import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.video.DramaPoster
+import com.lovelyreader.video.ranking.RankingBoardOption
+import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingEntry
 import com.lovelyreader.video.ranking.RankingError
 import com.lovelyreader.video.ranking.RankingFailureKind
@@ -61,9 +63,6 @@ import com.lovelyreader.video.ranking.RankingMediaType
 import com.lovelyreader.video.ranking.RankingRequest
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-
-/** A server capability, not a client-side list of guessed ranking choices. */
-data class RankingBoardOption(val id: String, val label: String)
 
 private fun mediaTypeLabel(mediaType: RankingMediaType): String = when (mediaType) {
     RankingMediaType.ALL -> "全部"
@@ -97,9 +96,7 @@ fun RankingScreen(
     onLoadNextPage: () -> Unit,
     onSearch: (RankingSearchIntent) -> Unit,
     modifier: Modifier = Modifier,
-    listState: LazyListState? = null,
-    supportedBoards: List<RankingBoardOption> = emptyList(),
-    supportedMediaTypes: List<RankingMediaType> = emptyList()
+    listState: LazyListState? = null
 ) {
     val fallbackListState = rememberLazyListState()
     val rankingListState = listState ?: fallbackListState
@@ -157,7 +154,10 @@ fun RankingScreen(
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
                 )
             }
-            if (supportedBoards.isEmpty() && supportedMediaTypes.isEmpty()) {
+            val capabilities = state.capabilities
+            val supportedBoards = capabilities.normalizedBoards()
+            val supportedMediaTypes = capabilities.normalizedMediaTypes()
+            if (!capabilities.hasVerifiedFilters) {
                 item { RankingCapabilitiesUnavailable() }
             } else {
                 if (supportedBoards.isNotEmpty()) item {
@@ -178,7 +178,7 @@ fun RankingScreen(
                 }
             }
             when (state) {
-                RankingUiState.Loading -> item { RankingLoadingState() }
+                is RankingUiState.Loading -> item { RankingLoadingState() }
                 is RankingUiState.Content -> items(state, onLoadNextPage, onSearch)
                 is RankingUiState.Refreshing -> {
                     item { RankingRefreshingBanner() }
@@ -440,7 +440,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
         state.lastError?.let { error ->
             Text(
                 rankingErrorCopy(error),
-                modifier = Modifier.fillMaxWidth().testTag("ranking-inline-error"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ranking-inline-error")
+                    .semantics { liveRegion = LiveRegionMode.Polite },
                 color = appColors().roseDust,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -449,12 +452,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
             Button(
                 onClick = onLoadNextPage,
                 enabled = !state.isLoadingNextPage,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ranking-pagination"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("ranking-pagination")
+                    .semantics { liveRegion = LiveRegionMode.Polite },
                 colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
                 if (state.isLoadingNextPage) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = androidx.compose.ui.graphics.Color.White, strokeWidth = 2.dp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = androidx.compose.ui.graphics.Color.White, strokeWidth = 2.dp)
+                        Text("正在加载更多")
+                    }
                 } else {
                     Text("加载更多")
                 }
@@ -467,7 +477,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
 private fun RankingSnapshotMeta(state: RankingSnapshotUiState) {
     val colors = appColors()
     val unavailable = state.snapshot.sourceStatuses.count { it.status.name != "AVAILABLE" }
-    SoftPanel(modifier = Modifier.testTag("ranking-snapshot-meta"), innerPadding = 12.dp) {
+    SoftPanel(
+        modifier = Modifier
+            .testTag("ranking-snapshot-meta")
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        innerPadding = 12.dp
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("榜单快照", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
             Text(freshnessLabel(state.snapshot.freshness), color = colors.roseDust, style = MaterialTheme.typography.bodyMedium)
@@ -500,25 +515,10 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
         if (entry.countries.isNotEmpty()) add(entry.countries.joinToString("、"))
         if (entry.genres.isNotEmpty()) add(entry.genres.joinToString("、"))
     }.joinToString(" · ")
-    val description = buildString {
-        append(rankLabel)
-        append("，")
-        append(entry.displayTitle)
-        if (metadata.isNotBlank()) {
-            append("，")
-            append(metadata)
-        }
-        append("，来源覆盖 ")
-        append(entry.coverage.coveredSourceIds.size)
-        append("/")
-        append(entry.coverage.sourceCount)
-    }
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("ranking-card-${canonicalTestKey(entry.canonicalId)}")
-            .semantics { contentDescription = description },
+            .testTag("ranking-card-${canonicalTestKey(entry.canonicalId)}"),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = colors.warmWhite.copy(alpha = .94f)),
         border = BorderStroke(1.dp, colors.lineColor),
@@ -601,7 +601,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
 }
 
 private fun RankingUiState.requestOrNull(): RankingRequest? = when (this) {
-    RankingUiState.Loading -> null
+    is RankingUiState.Loading -> null
     is RankingUiState.Content -> request
     is RankingUiState.Refreshing -> request
     is RankingUiState.Stale -> request
