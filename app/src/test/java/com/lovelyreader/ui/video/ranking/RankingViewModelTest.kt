@@ -2,6 +2,8 @@ package com.lovelyreader.ui.video.ranking
 
 import com.lovelyreader.video.ranking.InstantLike
 import com.lovelyreader.video.ranking.RankingAvailability
+import com.lovelyreader.video.ranking.RankingBoardOption
+import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingCoverage
 import com.lovelyreader.video.ranking.RankingDataSource
 import com.lovelyreader.video.ranking.RankingEntry
@@ -30,6 +32,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RankingViewModelTest {
+    @Test
+    fun `capability handshake updates the state before filters are rendered`() = runTest {
+        val capabilities = RankingCapabilities(
+            supportedBoards = listOf(RankingBoardOption("aggregate", "综合参考")),
+            supportedMediaTypes = listOf(RankingMediaType.SERIES)
+        )
+        val repository = object : RankingRepository {
+            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult =
+                RankingLoadResult(null, RankingDataSource.EMPTY)
+
+            override suspend fun loadCapabilities(): Result<RankingCapabilities> = Result.success(capabilities)
+        }
+        val viewModel = RankingViewModel(repository, this)
+
+        viewModel.refreshCapabilities()
+        advanceUntilIdle()
+
+        assertEquals(capabilities, viewModel.capabilities)
+        assertEquals(capabilities, viewModel.state.value.capabilities)
+        assertTrue(viewModel.state.value.capabilities.hasVerifiedFilters)
+    }
+
+    @Test
+    fun `configured capabilities are retained across loading and result states`() = runTest {
+        val capabilities = RankingCapabilities(
+            supportedBoards = listOf(RankingBoardOption("aggregate", "综合")),
+            supportedMediaTypes = listOf(RankingMediaType.SERIES)
+        )
+        val viewModel = RankingViewModel(
+            QueueRepository(RankingLoadResult(snapshot(items = listOf(entry("one"))), RankingDataSource.NETWORK)),
+            this,
+            capabilities
+        )
+
+        assertEquals(capabilities, viewModel.capabilities)
+        assertEquals(capabilities, viewModel.state.value.capabilities)
+        viewModel.refresh(request())
+        assertEquals(capabilities, viewModel.state.value.capabilities)
+        advanceUntilIdle()
+        assertEquals(capabilities, viewModel.state.value.capabilities)
+    }
+
     @Test
     fun `initial request maps available partial empty and no-cache error truthfully`() = runTest {
         val request = request()

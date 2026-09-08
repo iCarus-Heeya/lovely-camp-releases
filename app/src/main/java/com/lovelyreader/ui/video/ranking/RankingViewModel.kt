@@ -3,6 +3,8 @@ package com.lovelyreader.ui.video.ranking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lovelyreader.video.ranking.RankingAvailability
+import com.lovelyreader.video.ranking.RankingBoardOption
+import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingDataSource
 import com.lovelyreader.video.ranking.RankingEntry
 import com.lovelyreader.video.ranking.RankingError
@@ -28,7 +30,11 @@ data class RankingSearchIntent(
 )
 
 sealed interface RankingUiState {
-    data object Loading : RankingUiState
+    val capabilities: RankingCapabilities
+
+    data class Loading(
+        override val capabilities: RankingCapabilities = RankingCapabilities()
+    ) : RankingUiState
 
     data class Content(
         override val request: RankingRequest,
@@ -37,7 +43,8 @@ sealed interface RankingUiState {
         override val source: RankingDataSource,
         override val nextCursor: String?,
         override val isLoadingNextPage: Boolean = false,
-        override val lastError: RankingError? = null
+        override val lastError: RankingError? = null,
+        override val capabilities: RankingCapabilities = RankingCapabilities()
     ) : RankingSnapshotUiState
 
     data class Refreshing(
@@ -47,7 +54,8 @@ sealed interface RankingUiState {
         override val source: RankingDataSource,
         override val nextCursor: String?,
         override val isLoadingNextPage: Boolean = false,
-        override val lastError: RankingError? = null
+        override val lastError: RankingError? = null,
+        override val capabilities: RankingCapabilities = RankingCapabilities()
     ) : RankingSnapshotUiState
 
     data class Stale(
@@ -58,7 +66,8 @@ sealed interface RankingUiState {
         override val nextCursor: String?,
         override val isLoadingNextPage: Boolean = false,
         override val lastError: RankingError? = null,
-        val canRetry: Boolean = true
+        val canRetry: Boolean = true,
+        override val capabilities: RankingCapabilities = RankingCapabilities()
     ) : RankingSnapshotUiState
 
     data class Partial(
@@ -68,10 +77,12 @@ sealed interface RankingUiState {
         override val source: RankingDataSource,
         override val nextCursor: String?,
         override val isLoadingNextPage: Boolean = false,
-        override val lastError: RankingError? = null
+        override val lastError: RankingError? = null,
+        override val capabilities: RankingCapabilities = RankingCapabilities()
     ) : RankingSnapshotUiState
 
     data class Empty(
+        override val capabilities: RankingCapabilities = RankingCapabilities(),
         val request: RankingRequest? = null,
         val snapshot: RankingSnapshot? = null,
         val message: String = "暂无可展示的排行榜数据",
@@ -82,7 +93,8 @@ sealed interface RankingUiState {
     data class Error(
         val request: RankingRequest,
         val error: RankingError,
-        val canRetry: Boolean
+        val canRetry: Boolean,
+        override val capabilities: RankingCapabilities = RankingCapabilities()
     ) : RankingUiState
 }
 
@@ -104,9 +116,14 @@ sealed interface RankingSnapshotUiState : RankingUiState {
  */
 class RankingViewModel(
     private val repository: RankingRepository,
-    private val scope: CoroutineScope? = null
+    private val scope: CoroutineScope? = null,
+    initialCapabilities: RankingCapabilities = RankingCapabilities()
 ) : ViewModel() {
-    private val _state = MutableStateFlow<RankingUiState>(RankingUiState.Empty())
+    private var currentCapabilities = initialCapabilities
+    val capabilities: RankingCapabilities
+        get() = currentCapabilities
+
+    private val _state = MutableStateFlow<RankingUiState>(RankingUiState.Empty(capabilities = currentCapabilities))
     val state: StateFlow<RankingUiState> = _state.asStateFlow()
     val uiState: StateFlow<RankingUiState> = state
 
@@ -115,6 +132,7 @@ class RankingViewModel(
     private var generation = 0L
     private var refreshJob: Job? = null
     private var nextPageJob: Job? = null
+    private var capabilitiesJob: Job? = null
     private val executionScope: CoroutineScope
         get() = scope ?: viewModelScope
 
@@ -137,12 +155,27 @@ class RankingViewModel(
                 )
             }
             if (requestGeneration != generation || activeRequest != request) return@launch
-            _state.value = result.toInitialState(request)
+            _state.value = result.toInitialState(request, capabilities)
         }
     }
 
     fun retry() {
         activeRequest?.let { refresh(it, forceRefresh = true) }
+    }
+
+    /** Fetches the versioned service capabilities before filters become visible. */
+    fun refreshCapabilities() {
+        capabilitiesJob?.cancel()
+        capabilitiesJob = executionScope.launch {
+            val loaded = try {
+                repository.loadCapabilities().getOrElse { RankingCapabilities() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                RankingCapabilities()
+            }
+            applyCapabilities(loaded)
+        }
     }
 
     fun loadNextPage() {
@@ -188,7 +221,8 @@ class RankingViewModel(
                 request = parentRequest,
                 items = merged,
                 source = result.source,
-                error = result.error
+                error = result.error,
+                capabilities = capabilities
             )
         }
     }
@@ -214,7 +248,14 @@ class RankingViewModel(
     override fun onCleared() {
         refreshJob?.cancel()
         nextPageJob?.cancel()
+        capabilitiesJob?.cancel()
         super.onCleared()
+    }
+
+    private fun applyCapabilities(value: RankingCapabilities) {
+        if (value == capabilities) return
+        currentCapabilities = value
+        _state.value = _state.value.withCapabilities(value)
     }
 
     private fun refreshPresentation(request: RankingRequest): RankingUiState {
@@ -226,40 +267,46 @@ class RankingViewModel(
                 items = current.items,
                 source = current.source,
                 nextCursor = current.nextCursor,
-                lastError = current.lastError
+                lastError = current.lastError,
+                capabilities = capabilities
             )
         } else {
-            RankingUiState.Loading
+            RankingUiState.Loading(capabilities)
         }
     }
 }
 
-private fun RankingLoadResult.toInitialState(request: RankingRequest): RankingUiState {
+private fun RankingLoadResult.toInitialState(
+    request: RankingRequest,
+    capabilities: RankingCapabilities
+): RankingUiState {
     val rankingSnapshot = snapshot
     if (rankingSnapshot == null) {
         val failure = error
         return if (failure == null) {
-            RankingUiState.Empty(request = request)
+            RankingUiState.Empty(capabilities = capabilities, request = request)
         } else {
-            RankingUiState.Error(request, failure, failure.retryable)
+            RankingUiState.Error(request, failure, failure.retryable, capabilities)
         }
     }
     val data = rankingSnapshot.items
     if (source == RankingDataSource.CACHE_STALE || rankingSnapshot.freshness == RankingFreshness.STALE) {
         return RankingUiState.Stale(
             request, rankingSnapshot, data, source, rankingSnapshot.nextCursor,
-            lastError = error, canRetry = error?.retryable ?: true
+            lastError = error, canRetry = error?.retryable ?: true, capabilities = capabilities
         )
     }
     if (rankingSnapshot.availability == RankingAvailability.UNAVAILABLE) {
         return RankingUiState.Error(
             request,
             error ?: RankingError(RankingFailureKind.SERVICE_UNAVAILABLE, "Ranking service is unavailable", retryable = true),
-            error?.retryable ?: true
+            error?.retryable ?: true,
+            capabilities
         )
     }
     if (rankingSnapshot.availability == RankingAvailability.EMPTY || data.isEmpty()) {
         return RankingUiState.Empty(
+            capabilities = capabilities,
             request = request,
             snapshot = rankingSnapshot,
             error = error,
@@ -267,9 +314,9 @@ private fun RankingLoadResult.toInitialState(request: RankingRequest): RankingUi
         )
     }
     return if (rankingSnapshot.availability == RankingAvailability.PARTIAL) {
-        RankingUiState.Partial(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error)
+        RankingUiState.Partial(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error, capabilities = capabilities)
     } else {
-        RankingUiState.Content(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error)
+        RankingUiState.Content(request, rankingSnapshot, data, source, rankingSnapshot.nextCursor, lastError = error, capabilities = capabilities)
     }
 }
 
@@ -310,15 +357,26 @@ private fun RankingSnapshot.toPagedState(
     request: RankingRequest,
     items: List<RankingEntry>,
     source: RankingDataSource,
-    error: RankingError?
+    error: RankingError?,
+    capabilities: RankingCapabilities
 ): RankingSnapshotUiState = when {
     source == RankingDataSource.CACHE_STALE || freshness == RankingFreshness.STALE -> RankingUiState.Stale(
-        request, this, items, source, nextCursor, lastError = error, canRetry = error?.retryable ?: true
+        request, this, items, source, nextCursor, lastError = error, canRetry = error?.retryable ?: true, capabilities = capabilities
     )
     availability == RankingAvailability.PARTIAL -> RankingUiState.Partial(
-        request, this, items, source, nextCursor, lastError = error
+        request, this, items, source, nextCursor, lastError = error, capabilities = capabilities
     )
-    else -> RankingUiState.Content(request, this, items, source, nextCursor, lastError = error)
+    else -> RankingUiState.Content(request, this, items, source, nextCursor, lastError = error, capabilities = capabilities)
+}
+
+private fun RankingUiState.withCapabilities(value: RankingCapabilities): RankingUiState = when (this) {
+    is RankingUiState.Loading -> copy(capabilities = value)
+    is RankingUiState.Content -> copy(capabilities = value)
+    is RankingUiState.Refreshing -> copy(capabilities = value)
+    is RankingUiState.Stale -> copy(capabilities = value)
+    is RankingUiState.Partial -> copy(capabilities = value)
+    is RankingUiState.Empty -> copy(capabilities = value)
+    is RankingUiState.Error -> copy(capabilities = value)
 }
 
 private fun RankingSnapshotUiState.withPageLoading(isLoading: Boolean, error: RankingError? = lastError): RankingSnapshotUiState = when (this) {

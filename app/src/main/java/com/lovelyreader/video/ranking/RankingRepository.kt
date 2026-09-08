@@ -35,6 +35,9 @@ data class CachedRanking(
 
 interface RankingRepository {
     suspend fun load(request: RankingRequest, forceRefresh: Boolean = false): RankingLoadResult
+
+    /** Versioned capability handshake; empty means no verified filters are available. */
+    suspend fun loadCapabilities(): Result<RankingCapabilities> = Result.success(RankingCapabilities())
 }
 
 enum class RankingDataSource { NETWORK, CACHE_FRESH, CACHE_STALE, EMPTY }
