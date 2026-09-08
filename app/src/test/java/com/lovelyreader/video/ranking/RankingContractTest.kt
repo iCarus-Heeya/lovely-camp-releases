@@ -23,14 +23,20 @@ class RankingContractTest {
     @Test fun `parses versioned capabilities and exposes only declared filters`() {
         val result = parseRankingCapabilities(
             """
-            {"schemaVersion":1,"boards":[{"id":"aggregate","label":"综合参考"}],"mediaTypes":["SERIES"]}
+            {"schemaVersion":1,"boards":[{"id":"aggregate","label":"综合参考"}],"mediaTypes":["SERIES"],"periods":[{"id":"week","label":"本周"}],"regions":[{"id":"CN","label":"中国"}],"years":[2026,2024],"genres":[{"id":"drama","label":"剧情"}],"languages":[{"id":"zh-CN","label":"中文"}]}
             """.trimIndent()
         )
         assertTrue(result.isSuccess)
         val capabilities = result.getOrThrow()
         assertEquals(listOf(RankingBoardOption("aggregate", "综合参考")), capabilities.supportedBoards)
         assertEquals(listOf(RankingMediaType.SERIES), capabilities.supportedMediaTypes)
+        assertEquals(listOf("week"), capabilities.supportedPeriods.map { it.id })
+        assertEquals(listOf("CN"), capabilities.supportedRegions.map { it.id })
+        assertEquals(listOf(2026, 2024), capabilities.supportedYears)
+        assertEquals(listOf("drama"), capabilities.supportedGenres.map { it.id })
+        assertEquals(listOf("zh-CN"), capabilities.supportedLanguages.map { it.id })
         assertTrue(capabilities.hasVerifiedFilters)
+        assertTrue(capabilities.canLoadRanking)
     }
 
     @Test fun `rejects duplicate or unsupported capability declarations`() {
@@ -45,6 +51,16 @@ class RankingContractTest {
             ).isFailure
         )
         assertTrue(parseRankingCapabilities("""{"schemaVersion":2,"boards":[],"mediaTypes":[]}""").isFailure)
+        assertTrue(
+            parseRankingCapabilities(
+                """{"schemaVersion":1,"boards":[{"id":"aggregate","label":"综合"}],"mediaTypes":["ALL"],"regions":[{"id":"CN","label":"中"},{"id":"CN","label":"重复"}]}"""
+            ).isFailure
+        )
+        assertTrue(
+            parseRankingCapabilities(
+                """{"schemaVersion":1,"boards":[{"id":"aggregate","label":"综合"}],"mediaTypes":["ALL"],"years":[2026,2201]}"""
+            ).isFailure
+        )
     }
 
     @Test fun `ranking posters remain placeholders until address bound redirect safe loading exists`() {

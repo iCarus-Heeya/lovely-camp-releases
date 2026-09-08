@@ -54,10 +54,10 @@ import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.theme.appColors
 import com.lovelyreader.ui.video.DramaPoster
 import com.lovelyreader.video.ranking.RankingBoardOption
-import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingEntry
 import com.lovelyreader.video.ranking.RankingError
 import com.lovelyreader.video.ranking.RankingFailureKind
+import com.lovelyreader.video.ranking.RankingFilterOption
 import com.lovelyreader.video.ranking.RankingFreshness
 import com.lovelyreader.video.ranking.RankingMediaType
 import com.lovelyreader.video.ranking.RankingRequest
@@ -71,18 +71,6 @@ private fun mediaTypeLabel(mediaType: RankingMediaType): String = when (mediaTyp
     RankingMediaType.VARIETY -> "综艺"
 }
 
-/** The first request is deliberately conservative until the server capabilities are known. */
-internal fun defaultRankingRequest(): RankingRequest = RankingRequest(
-    boardId = "aggregate",
-    period = "week",
-    mediaType = RankingMediaType.ALL,
-    region = null,
-    year = null,
-    genre = null,
-    language = null,
-    limit = 20
-)
-
 /**
  * A stateless ranking surface. All visible content comes from [state]; all
  * navigation and network decisions stay with the drama host/ViewModel.
@@ -95,12 +83,13 @@ fun RankingScreen(
     onRequest: (RankingRequest) -> Unit,
     onLoadNextPage: () -> Unit,
     onSearch: (RankingSearchIntent) -> Unit,
+    onOpenSearch: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState? = null
 ) {
     val fallbackListState = rememberLazyListState()
     val rankingListState = listState ?: fallbackListState
-    val request = state.requestOrNull() ?: defaultRankingRequest()
+    val request = state.requestOrNull()
     val colors = appColors()
 
     InkWashBackground(modifier.fillMaxSize()) {
@@ -157,25 +146,69 @@ fun RankingScreen(
             val capabilities = state.capabilities
             val supportedBoards = capabilities.normalizedBoards()
             val supportedMediaTypes = capabilities.normalizedMediaTypes()
-            if (!capabilities.hasVerifiedFilters) {
-                item { RankingCapabilitiesUnavailable() }
-            } else {
+            if (state !is RankingUiState.Loading && capabilities.canLoadRanking && request != null) {
+                val selectedRequest = request
                 if (supportedBoards.isNotEmpty()) item {
                     RankingFilterRow(
                         title = "榜单类型",
                         options = supportedBoards,
-                        selectedId = request.boardId,
-                        onSelected = { board -> onRequest(request.copy(boardId = board, cursor = null)) },
+                        selectedId = selectedRequest.boardId,
+                        onSelected = { board -> onRequest(selectedRequest.copy(boardId = board, cursor = null)) },
                         testTagPrefix = "ranking-board-tab"
                     )
                 }
                 if (supportedMediaTypes.isNotEmpty()) item {
                     RankingMediaFilterRow(
                         supported = supportedMediaTypes,
-                        selected = request.mediaType,
-                        onSelected = { media -> onRequest(request.copy(mediaType = media, cursor = null)) }
+                        selected = selectedRequest.mediaType,
+                        onSelected = { media -> onRequest(selectedRequest.copy(mediaType = media, cursor = null)) }
                     )
                 }
+                if (capabilities.normalizedPeriods().isNotEmpty()) item {
+                    RankingNullableFilterRow(
+                        title = "时间窗",
+                        options = capabilities.normalizedPeriods(),
+                        selectedId = selectedRequest.period,
+                        onSelected = { period -> onRequest(selectedRequest.copy(period = period, cursor = null)) },
+                        testTagPrefix = "ranking-period"
+                    )
+                }
+                if (capabilities.normalizedRegions().isNotEmpty()) item {
+                    RankingNullableFilterRow(
+                        title = "国家/地区",
+                        options = capabilities.normalizedRegions(),
+                        selectedId = selectedRequest.region,
+                        onSelected = { region -> onRequest(selectedRequest.copy(region = region, cursor = null)) },
+                        testTagPrefix = "ranking-region"
+                    )
+                }
+                if (capabilities.normalizedYears().isNotEmpty()) item {
+                    RankingYearFilterRow(
+                        options = capabilities.normalizedYears(),
+                        selected = selectedRequest.year,
+                        onSelected = { year -> onRequest(selectedRequest.copy(year = year, cursor = null)) }
+                    )
+                }
+                if (capabilities.normalizedGenres().isNotEmpty()) item {
+                    RankingNullableFilterRow(
+                        title = "类型",
+                        options = capabilities.normalizedGenres(),
+                        selectedId = selectedRequest.genre,
+                        onSelected = { genre -> onRequest(selectedRequest.copy(genre = genre, cursor = null)) },
+                        testTagPrefix = "ranking-genre"
+                    )
+                }
+                if (capabilities.normalizedLanguages().isNotEmpty()) item {
+                    RankingNullableFilterRow(
+                        title = "语言",
+                        options = capabilities.normalizedLanguages(),
+                        selectedId = selectedRequest.language,
+                        onSelected = { language -> onRequest(selectedRequest.copy(language = language, cursor = null)) },
+                        testTagPrefix = "ranking-language"
+                    )
+                }
+            } else if (state !is RankingUiState.Loading) {
+                item { RankingCapabilitiesUnavailable(onOpenSearch = onOpenSearch) }
             }
             when (state) {
                 is RankingUiState.Loading -> item { RankingLoadingState() }
@@ -197,8 +230,10 @@ fun RankingScreen(
                     }
                     items(state, onLoadNextPage, onSearch)
                 }
-                is RankingUiState.Empty -> item { RankingEmptyState(state, request, onRefresh) }
-                is RankingUiState.Error -> item { RankingErrorState(state.error, state.canRetry, onRefresh, onBack) }
+                is RankingUiState.Empty -> if (capabilities.canLoadRanking || state.request != null) {
+                    item { RankingEmptyState(state, request, onRefresh, onOpenSearch) }
+                }
+                is RankingUiState.Error -> item { RankingErrorState(state.error, state.canRetry, onRefresh, onBack, onOpenSearch) }
             }
         }
     }
@@ -269,6 +304,92 @@ private fun RankingMediaFilterRow(
 }
 
 @Composable
+private fun RankingNullableFilterRow(
+    title: String,
+    options: List<RankingFilterOption>,
+    selectedId: String?,
+    onSelected: (String?) -> Unit,
+    testTagPrefix: String
+) {
+    val colors = appColors()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().testTag("$testTagPrefix-tabs"),
+            contentPadding = PaddingValues(end = 8.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedId == null,
+                    onClick = { onSelected(null) },
+                    label = { Text("全部", fontSize = 14.sp, maxLines = 1) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("$testTagPrefix-all")
+                        .semantics {
+                            contentDescription = "全部，$title${if (selectedId == null) "，已选中" else ""}"
+                        }
+                )
+            }
+            items(options, key = { it.id }) { option ->
+                FilterChip(
+                    selected = option.id == selectedId,
+                    onClick = { onSelected(option.id) },
+                    label = { Text(option.label, fontSize = 14.sp, maxLines = 1) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("$testTagPrefix-${canonicalTestKey(option.id)}")
+                        .semantics {
+                            contentDescription = "$title${option.label}${if (option.id == selectedId) "，已选中" else ""}"
+                        }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RankingYearFilterRow(
+    options: List<Int>,
+    selected: Int?,
+    onSelected: (Int?) -> Unit
+) {
+    val colors = appColors()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("年份", color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().testTag("ranking-year-tabs"),
+            contentPadding = PaddingValues(end = 8.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = selected == null,
+                    onClick = { onSelected(null) },
+                    label = { Text("全部", fontSize = 14.sp, maxLines = 1) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("ranking-year-all")
+                        .semantics { contentDescription = "全部，年份${if (selected == null) "，已选中" else ""}" }
+                )
+            }
+            items(options, key = { it }) { year ->
+                FilterChip(
+                    selected = year == selected,
+                    onClick = { onSelected(year) },
+                    label = { Text(year.toString(), fontSize = 14.sp, maxLines = 1) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("ranking-year-$year")
+                        .semantics { contentDescription = "年份$year${if (year == selected) "，已选中" else ""}" }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RankingLoadingState() {
     val colors = appColors()
     SoftPanel(
@@ -287,7 +408,7 @@ private fun RankingLoadingState() {
 }
 
 @Composable
-private fun RankingCapabilitiesUnavailable() {
+private fun RankingCapabilitiesUnavailable(onOpenSearch: () -> Unit) {
     val colors = appColors()
     SoftPanel(
         modifier = Modifier
@@ -295,8 +416,13 @@ private fun RankingCapabilitiesUnavailable() {
             .semantics { liveRegion = LiveRegionMode.Polite },
         innerPadding = 12.dp
     ) {
-        Text("筛选待数据能力接入", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-        Text("当前没有已验证的榜单或媒体类型能力，暂不显示可选择的筛选项。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+        Text("排行榜暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+        Text("当前服务没有返回完整的榜单能力，暂不显示未经验证的筛选项。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+        OutlinedButton(
+            onClick = onOpenSearch,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ranking-open-search-unavailable"),
+            border = BorderStroke(1.dp, colors.roseBeige)
+        ) { Text("去追剧搜索", color = colors.roseDust) }
     }
 }
 
@@ -370,25 +496,43 @@ private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
 }
 
 @Composable
-private fun RankingEmptyState(state: RankingUiState.Empty, request: RankingRequest, onRefresh: () -> Unit) {
+private fun RankingEmptyState(
+    state: RankingUiState.Empty,
+    request: RankingRequest?,
+    onRefresh: () -> Unit,
+    onOpenSearch: () -> Unit
+) {
     val colors = appColors()
     SoftPanel(
         modifier = Modifier
             .testTag("ranking-empty")
             .semantics { liveRegion = LiveRegionMode.Polite }
     ) {
-        Text("这个条件下暂时没有榜单内容", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text(
-            text = rankingFilterSummary(request),
-            color = colors.softGray,
-            style = MaterialTheme.typography.bodyMedium
+            if (request == null) "暂时没有可展示的排行榜" else "这个条件下暂时没有榜单内容",
+            color = colors.cocoa,
+            style = MaterialTheme.typography.titleMedium
         )
-        if (state.canRetry) {
-            Button(
-                onClick = onRefresh,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ranking-empty-retry"),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.roseDust)
-            ) { Text("重新加载") }
+        if (request != null) {
+            Text(
+                text = rankingFilterSummary(request),
+                color = colors.softGray,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            if (state.canRetry) {
+                Button(
+                    onClick = onRefresh,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("ranking-empty-retry"),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.roseDust)
+                ) { Text("重新加载") }
+            }
+            OutlinedButton(
+                onClick = onOpenSearch,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("ranking-empty-search"),
+                border = BorderStroke(1.dp, colors.lineColor)
+            ) { Text("去追剧搜索", color = colors.roseDust) }
         }
     }
 }
@@ -398,7 +542,8 @@ private fun RankingErrorState(
     error: RankingError,
     canRetry: Boolean,
     onRetry: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenSearch: () -> Unit
 ) {
     val colors = appColors()
     SoftPanel(
@@ -422,6 +567,10 @@ private fun RankingErrorState(
                 border = BorderStroke(1.dp, colors.lineColor)
             ) { Text("返回追剧", color = colors.roseDust) }
         }
+        TextButton(
+            onClick = onOpenSearch,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("ranking-error-search")
+        ) { Text("去追剧搜索", color = colors.roseDust) }
     }
 }
 
@@ -534,14 +683,16 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     .widthIn(min = 34.dp)
                     .wrapContentWidth()
                     .heightIn(min = 112.dp)
-                    .padding(end = 2.dp),
+                    .padding(end = 2.dp)
+                    .semantics { contentDescription = rankLabel },
                 contentAlignment = Alignment.TopCenter
             ) {
                 Text(
                     entry.rank?.toString() ?: "—",
                     color = colors.roseDust,
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clearAndSetSemantics { }
                 )
             }
             Box(
@@ -564,7 +715,9 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     entry.displayTitle,
                     color = colors.cocoa,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 entry.originalTitle?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = colors.softGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -580,6 +733,40 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                     color = colors.roseDust,
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
                 )
+                entry.aggregateScore?.let { score ->
+                    Text(
+                        "综合参考 ${formatRankingScore(score)}",
+                        color = colors.roseDust,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                val sourceRatings = entry.sourceRatings.mapNotNull { rating ->
+                    rating.value?.let { value ->
+                        "${rating.sourceId} ${formatRankingScore(value)}${rating.scaleMax?.let { "/${formatRankingScore(it)}" }.orEmpty()}"
+                    }
+                }
+                if (sourceRatings.isNotEmpty()) {
+                    Text(
+                        "来源评分：${sourceRatings.joinToString(" · ")}",
+                        color = colors.softGray,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                val sourceRanks = entry.sourceRanks.mapNotNull { sourceRank ->
+                    sourceRank.rank?.let { "${sourceRank.sourceId} 第${it}名" }
+                }
+                if (sourceRanks.isNotEmpty()) {
+                    Text(
+                        "来源榜位：${sourceRanks.joinToString(" · ")}",
+                        color = colors.softGray,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 TextButton(
                     onClick = {
                         onSearch(
@@ -638,6 +825,9 @@ private fun freshnessLabel(freshness: RankingFreshness): String = when (freshnes
 
 private fun formatRankingTimestamp(epochMillis: Long): String =
     java.time.Instant.ofEpochMilli(epochMillis).toString().replace('T', ' ').removeSuffix("Z")
+
+private fun formatRankingScore(value: Double): String =
+    String.format(java.util.Locale.ROOT, "%.1f", value)
 
 private fun canonicalTestKey(canonicalId: String): String = MessageDigest
     .getInstance("SHA-256")

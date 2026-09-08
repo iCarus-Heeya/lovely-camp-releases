@@ -14,11 +14,17 @@ enum class RankingErrorCode { BAD_REQUEST, NOT_FOUND, SNAPSHOT_EXPIRED, RATE_LIM
  * media filters when this contract is empty or unavailable.
  */
 data class RankingBoardOption(val id: String, val label: String)
+data class RankingFilterOption(val id: String, val label: String)
 
 data class RankingCapabilities(
     val schemaVersion: Int = 1,
     val supportedBoards: List<RankingBoardOption> = emptyList(),
-    val supportedMediaTypes: List<RankingMediaType> = emptyList()
+    val supportedMediaTypes: List<RankingMediaType> = emptyList(),
+    val supportedPeriods: List<RankingFilterOption> = emptyList(),
+    val supportedRegions: List<RankingFilterOption> = emptyList(),
+    val supportedYears: List<Int> = emptyList(),
+    val supportedGenres: List<RankingFilterOption> = emptyList(),
+    val supportedLanguages: List<RankingFilterOption> = emptyList()
 ) {
     fun normalizedBoards(): List<RankingBoardOption> = supportedBoards
         .asSequence()
@@ -28,8 +34,27 @@ data class RankingCapabilities(
 
     fun normalizedMediaTypes(): List<RankingMediaType> = supportedMediaTypes.distinct()
 
+    private fun normalizedOptions(options: List<RankingFilterOption>): List<RankingFilterOption> = options
+        .asSequence()
+        .filter { it.id.isNotBlank() }
+        .distinctBy { it.id }
+        .toList()
+
+    fun normalizedPeriods(): List<RankingFilterOption> = normalizedOptions(supportedPeriods)
+    fun normalizedRegions(): List<RankingFilterOption> = normalizedOptions(supportedRegions)
+    fun normalizedGenres(): List<RankingFilterOption> = normalizedOptions(supportedGenres)
+    fun normalizedLanguages(): List<RankingFilterOption> = normalizedOptions(supportedLanguages)
+    fun normalizedYears(): List<Int> = supportedYears.filter { it in 1800..2200 }.distinct().sortedDescending()
+
     val hasVerifiedFilters: Boolean
-        get() = normalizedBoards().isNotEmpty() || normalizedMediaTypes().isNotEmpty()
+        get() = normalizedBoards().isNotEmpty() || normalizedMediaTypes().isNotEmpty() ||
+            normalizedPeriods().isNotEmpty() || normalizedRegions().isNotEmpty() ||
+            normalizedYears().isNotEmpty() || normalizedGenres().isNotEmpty() ||
+            normalizedLanguages().isNotEmpty()
+
+    /** A board and media type are the minimum safe request dimensions. */
+    val canLoadRanking: Boolean
+        get() = normalizedBoards().isNotEmpty() && normalizedMediaTypes().isNotEmpty()
 }
 
 data class RankingRequest(

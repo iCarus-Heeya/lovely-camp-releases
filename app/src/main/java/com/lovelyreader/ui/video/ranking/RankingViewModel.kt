@@ -133,10 +133,25 @@ class RankingViewModel(
     private var refreshJob: Job? = null
     private var nextPageJob: Job? = null
     private var capabilitiesJob: Job? = null
+    private var capabilitiesReady = initialCapabilities.hasVerifiedFilters
     private val executionScope: CoroutineScope
         get() = scope ?: viewModelScope
 
     fun refresh(request: RankingRequest, forceRefresh: Boolean = false) {
+        // Once the handshake has completed, reject requests that contain a
+        // filter the service did not declare. Before the first handshake we
+        // keep direct unit-test/fake-repository callers usable; the production
+        // host enters through refreshInitial() below.
+        if (capabilitiesReady && !isSupportedRequest(request, capabilities)) {
+            activeRequest = null
+            refreshJob?.cancel()
+            nextPageJob?.cancel()
+            _state.value = RankingUiState.Empty(
+                capabilities = capabilities,
+                message = "当前筛选能力已更新，请重新选择榜单条件。"
+            )
+            return
+        }
         val requestGeneration = ++generation
         activeRequest = request
         refreshJob?.cancel()
@@ -167,14 +182,38 @@ class RankingViewModel(
     fun refreshCapabilities() {
         capabilitiesJob?.cancel()
         capabilitiesJob = executionScope.launch {
-            val loaded = try {
-                repository.loadCapabilities().getOrElse { RankingCapabilities() }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                RankingCapabilities()
-            }
+            val loaded = loadCapabilitiesSafely()
+            capabilitiesReady = true
             applyCapabilities(loaded)
+        }
+    }
+
+    /**
+     * Performs the handshake and only then creates a request from declared
+     * capabilities. No fixed board/media combination is sent while the
+     * server contract is unknown or unavailable.
+     */
+    fun refreshInitial() {
+        capabilitiesJob?.cancel()
+        _state.value = RankingUiState.Loading(capabilities)
+        capabilitiesJob = executionScope.launch {
+            val loaded = loadCapabilitiesSafely()
+            capabilitiesReady = true
+            applyCapabilities(loaded)
+            val initialRequest = initialRequest(loaded)
+            if (initialRequest != null) {
+                refresh(initialRequest)
+            } else {
+                activeRequest = null
+                _state.value = RankingUiState.Empty(
+                    capabilities = loaded,
+                    message = if (loaded.hasVerifiedFilters) {
+                        "排行榜暂未返回完整的榜单能力。"
+                    } else {
+                        "排行榜数据服务暂未接入。"
+                    }
+                )
+            }
         }
     }
 
@@ -256,6 +295,41 @@ class RankingViewModel(
         if (value == capabilities) return
         currentCapabilities = value
         _state.value = _state.value.withCapabilities(value)
+    }
+
+    private suspend fun loadCapabilitiesSafely(): RankingCapabilities = try {
+        repository.loadCapabilities().getOrElse { RankingCapabilities() }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        RankingCapabilities()
+    }
+
+    private fun initialRequest(value: RankingCapabilities): RankingRequest? {
+        val board = value.normalizedBoards().firstOrNull() ?: return null
+        val media = value.normalizedMediaTypes().firstOrNull() ?: return null
+        return RankingRequest(
+            boardId = board.id,
+            period = value.normalizedPeriods().firstOrNull()?.id,
+            mediaType = media,
+            region = null,
+            year = null,
+            genre = null,
+            language = null,
+            limit = 20
+        )
+    }
+
+    private fun isSupportedRequest(request: RankingRequest, value: RankingCapabilities): Boolean {
+        if (!value.canLoadRanking) return false
+        if (request.boardId !in value.normalizedBoards().map { it.id }) return false
+        if (request.mediaType !in value.normalizedMediaTypes()) return false
+        if (request.period != null && request.period !in value.normalizedPeriods().map { it.id }) return false
+        if (request.region != null && request.region !in value.normalizedRegions().map { it.id }) return false
+        if (request.year != null && request.year !in value.normalizedYears()) return false
+        if (request.genre != null && request.genre !in value.normalizedGenres().map { it.id }) return false
+        if (request.language != null && request.language !in value.normalizedLanguages().map { it.id }) return false
+        return true
     }
 
     private fun refreshPresentation(request: RankingRequest): RankingUiState {
