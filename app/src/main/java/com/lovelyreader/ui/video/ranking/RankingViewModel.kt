@@ -194,6 +194,15 @@ class RankingViewModel(
      * server contract is unknown or unavailable.
      */
     fun refreshInitial() {
+        val current = _state.value as? RankingSnapshotUiState
+        val existingRequest = activeRequest
+        if (current != null && existingRequest != null) {
+            // Returning from search/detail must keep the visible snapshot and
+            // scroll position. A normal refresh preserves those rows while
+            // replacing them atomically when the new response arrives.
+            refresh(existingRequest)
+            return
+        }
         capabilitiesJob?.cancel()
         _state.value = RankingUiState.Loading(capabilities)
         capabilitiesJob = executionScope.launch {
@@ -345,9 +354,9 @@ class RankingViewModel(
 
     private fun refreshPresentation(request: RankingRequest): RankingUiState {
         val current = _state.value as? RankingSnapshotUiState
-        return if (current != null && requestContext(current.request) == requestContext(request)) {
+        return if (current != null) {
             RankingUiState.Refreshing(
-                request = current.request,
+                request = request,
                 snapshot = current.snapshot,
                 items = current.items,
                 source = current.source,

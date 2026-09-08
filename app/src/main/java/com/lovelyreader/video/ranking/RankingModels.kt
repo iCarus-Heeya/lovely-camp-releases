@@ -9,6 +9,10 @@ enum class RankingAvailability { AVAILABLE, PARTIAL, EMPTY, UNAVAILABLE }
 enum class RankingSourceHealth { AVAILABLE, DEGRADED, UNAVAILABLE }
 enum class RankingErrorCode { BAD_REQUEST, NOT_FOUND, SNAPSHOT_EXPIRED, RATE_LIMITED, NO_SNAPSHOT, PARSE_ERROR }
 
+/** Aggregate scores are normalized to a documented ten-point scale. */
+const val RANKING_AGGREGATE_SCORE_MIN = 0.0
+const val RANKING_AGGREGATE_SCORE_MAX = 10.0
+
 /**
  * Server-declared ranking capabilities. The client must not invent boards or
  * media filters when this contract is empty or unavailable.
@@ -86,5 +90,9 @@ data class RankingSnapshot(
     val snapshotId: String, val generatedAt: InstantLike, val dataAsOf: InstantLike,
     val expiresAt: InstantLike, val staleUntil: InstantLike, val freshness: RankingFreshness,
     val availability: RankingAvailability, val coverage: RankingCoverage,
-    val sourceStatuses: List<RankingSourceStatus>, val items: List<RankingEntry>, val nextCursor: String?
+    val sourceStatuses: List<RankingSourceStatus>, val items: List<RankingEntry>, val nextCursor: String?,
+    /** Version of the aggregation formula used for aggregateScore. */
+    val methodologyVersion: String? = null,
+    /** Version of the cross-source identity map used for canonicalId. */
+    val identityMapVersion: String? = null
 )

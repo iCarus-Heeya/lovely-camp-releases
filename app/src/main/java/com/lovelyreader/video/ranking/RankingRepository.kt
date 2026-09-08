@@ -30,7 +30,9 @@ interface RankingEtagCache : RankingCache {
 data class CachedRanking(
     val snapshot: RankingSnapshot,
     val cachedAtMillis: Long,
-    val etag: String? = null
+    val etag: String? = null,
+    /** True when the original network response had another opaque page. */
+    val hasMorePages: Boolean = snapshot.nextCursor != null
 )
 
 interface RankingRepository {
@@ -93,12 +95,12 @@ class DefaultRankingRepository(
             runCatching { cache.remove(key) }
             null
         }
-        if (!forceRefresh && cached != null && now < cached.snapshot.expiresAt.epochMillis) {
+        if (!forceRefresh && cached != null && !cached.hasMorePages && now < cached.snapshot.expiresAt.epochMillis) {
             return RankingLoadResult(cached.snapshot, RankingDataSource.CACHE_FRESH)
         }
 
         val response = try {
-            transport.fetch(request, cached?.etag)
+            transport.fetch(request, cached?.takeUnless { it.hasMorePages }?.etag)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: RankingTransportException) {
@@ -111,7 +113,11 @@ class DefaultRankingRepository(
             200 -> handleSuccess(request, key, cached, now, response)
             304 -> {
                 if (cached != null && now <= cached.snapshot.staleUntil.epochMillis) {
-                    val source = if (now < cached.snapshot.expiresAt.epochMillis) RankingDataSource.CACHE_FRESH else RankingDataSource.CACHE_STALE
+                    val source = if (!cached.hasMorePages && now < cached.snapshot.expiresAt.epochMillis) {
+                        RankingDataSource.CACHE_FRESH
+                    } else {
+                        RankingDataSource.CACHE_STALE
+                    }
                     RankingLoadResult(cached.snapshot, source)
                 } else {
                     emptyError(RankingFailureKind.NOT_MODIFIED_WITHOUT_CACHE, "Ranking cache is unavailable", 304)
@@ -147,24 +153,35 @@ class DefaultRankingRepository(
         if (!snapshot.matches(request)) {
             return fallback(cached, now, RankingError(RankingFailureKind.MALFORMED_RESPONSE, "Ranking response does not match request"))
         }
-        val cacheWriteFailed = try {
-            if (cache is RankingEtagCache) {
-                cache.write(key, snapshot, safeEtag(response.etag), now)
-            } else {
-                cache.write(key, snapshot)
-            }
+        // Cursor pages contain opaque continuation tokens. Keep them in memory
+        // only; the first page is cached with a hasMorePages marker so a fresh
+        // cache hit never masquerades as a paginatable snapshot.
+        val cacheWriteFailed = if (request.cursor != null) {
             false
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            true
+        } else {
+            try {
+                if (cache is RankingEtagCache) {
+                    cache.write(key, snapshot, safeEtag(response.etag), now)
+                } else {
+                    cache.write(key, snapshot)
+                }
+                false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                true
+            }
         }
         return RankingLoadResult(snapshot, RankingDataSource.NETWORK, cacheWriteFailed = cacheWriteFailed)
     }
 
     private fun fallback(cached: CachedRanking?, now: Long, error: RankingError): RankingLoadResult {
         if (cached != null && now <= cached.snapshot.staleUntil.epochMillis) {
-            val source = if (now < cached.snapshot.expiresAt.epochMillis) RankingDataSource.CACHE_FRESH else RankingDataSource.CACHE_STALE
+            val source = if (!cached.hasMorePages && now < cached.snapshot.expiresAt.epochMillis) {
+                RankingDataSource.CACHE_FRESH
+            } else {
+                RankingDataSource.CACHE_STALE
+            }
             return RankingLoadResult(cached.snapshot, source, error)
         }
         return RankingLoadResult(null, RankingDataSource.EMPTY, error)

@@ -5,6 +5,16 @@
   "catalogId": "ranking-debug-catalog-v1",
   "purpose": "仅用于 Debug 状态、解析和视觉测试，不代表任何真实来源、线上排名或聚合评分。",
   "clock": "2026-09-08T00:00:00Z",
+  "capabilities": {
+    "schemaVersion": 1,
+    "boards": [{"id": "aggregate", "label": "综合参考"}, {"id": "trend", "label": "趋势"}],
+    "mediaTypes": ["ALL", "MOVIE", "SERIES", "VARIETY"],
+    "periods": [{"id": "week", "label": "本周"}, {"id": "month", "label": "本月"}],
+    "regions": [{"id": "CN", "label": "中国"}, {"id": "US", "label": "美国"}, {"id": "JP", "label": "日本"}],
+    "years": [2026, 2025, 2024, 2023],
+    "genres": [{"id": "drama", "label": "剧情"}, {"id": "mystery", "label": "悬疑"}, {"id": "variety", "label": "综艺"}],
+    "languages": [{"id": "zh-CN", "label": "中文"}, {"id": "en", "label": "英语"}, {"id": "ja", "label": "日语"}]
+  },
   "scenarios": [
     {
       "id": "complete",
@@ -32,6 +42,8 @@
         "staleUntil": "2026-09-27T00:00:00Z",
         "freshness": "FRESH",
         "availability": "AVAILABLE",
+        "methodologyVersion": "debug-aggregate-v1",
+        "identityMapVersion": "debug-identity-v1",
         "coverage": {
           "sourceCount": 3,
           "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
@@ -55,9 +67,9 @@
             "genres": ["悬疑", "剧情"],
             "posterUrl": null,
             "summary": "仅用于测试榜单卡片的摘要和来源覆盖文案，不是线上节目资料。",
-            "aggregateScore": null,
-            "sourceRatings": [],
-            "sourceRanks": [],
+            "aggregateScore": 8.6,
+            "sourceRatings": [{"sourceId": "debug-source-a", "value": 8.8, "scaleMax": 10.0, "voteCount": 1200}, {"sourceId": "debug-source-b", "value": 8.4, "scaleMax": 10.0, "voteCount": 800}],
+            "sourceRanks": [{"sourceId": "debug-source-a", "rank": 2, "previousRank": 4, "rankDelta": 2, "isNew": false}, {"sourceId": "debug-source-b", "rank": 1, "previousRank": 3, "rankDelta": 2, "isNew": false}],
             "coverage": {
               "sourceCount": 3,
               "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],
@@ -77,9 +89,9 @@
             "genres": ["剧情"],
             "posterUrl": null,
             "summary": "用于验证原名、别名和去搜索意图的短摘要。",
-            "aggregateScore": null,
-            "sourceRatings": [],
-            "sourceRanks": [],
+            "aggregateScore": 7.9,
+            "sourceRatings": [{"sourceId": "debug-source-a", "value": 7.9, "scaleMax": 10.0, "voteCount": 540}],
+            "sourceRanks": [{"sourceId": "debug-source-a", "rank": 5, "previousRank": null, "rankDelta": null, "isNew": true}],
             "coverage": {
               "sourceCount": 3,
               "coveredSourceIds": ["debug-source-a", "debug-source-b", "debug-source-c"],

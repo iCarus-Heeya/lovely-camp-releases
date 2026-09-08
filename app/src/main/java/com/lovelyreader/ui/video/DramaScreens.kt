@@ -251,7 +251,7 @@ fun DramaScreen(
             onRequest = { request -> rankingViewModel?.refresh(request) },
             onLoadNextPage = { rankingViewModel?.loadNextPage() },
             onOpenSearch = {
-                rankingSearchOrigin = false
+                rankingSearchOrigin = true
                 page = DramaPage.Home
             },
             onSearch = { intent ->
