@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -118,10 +119,17 @@ import com.lovelyreader.ui.InkWashBackground
 import com.lovelyreader.ui.HighFidelityRoseMark
 import com.lovelyreader.ui.theme.appColors
 import kotlinx.coroutines.delay
+import com.lovelyreader.ui.video.ranking.RankingScreen
+import com.lovelyreader.ui.video.ranking.RankingSearchIntent
+import com.lovelyreader.ui.video.ranking.RankingUiState
+import com.lovelyreader.ui.video.ranking.RankingViewModel
+import com.lovelyreader.ui.video.ranking.defaultRankingRequest
 
 @Composable
 fun DramaScreen(
     viewModel: DramaViewModel,
+    rankingViewModel: RankingViewModel? = null,
+    onRankingSearch: (RankingSearchIntent) -> Unit = {},
     debugDiagnostics: (() -> List<VideoRequestDiagnostic>)? = null,
     experienceSwitch: @Composable () -> Unit = {},
     detailExperienceSwitch: (@Composable () -> Unit)? = null,
@@ -138,9 +146,17 @@ fun DramaScreen(
     val downloads by viewModel.downloadTasks.collectAsState()
     val playback by viewModel.playback.collectAsState()
     val recentViewing by viewModel.recentViewing.collectAsState()
+    val rankingState = if (rankingViewModel != null) {
+        val collected by rankingViewModel.state.collectAsState()
+        collected
+    } else {
+        RankingUiState.Empty()
+    }
     var page by remember { mutableStateOf(DramaPage.Home) }
+    var detailOrigin by remember { mutableStateOf(DramaPage.Home) }
     var showDiagnostics by remember { mutableStateOf(false) }
     val homeListState = rememberLazyListState()
+    val rankingListState = rememberLazyListState()
     val currentExperienceSwitch: @Composable () -> Unit = if (usesDetailExperienceSwitch(page)) {
         detailExperienceSwitch ?: experienceSwitch
     } else {
@@ -149,13 +165,21 @@ fun DramaScreen(
 
     BackHandler(enabled = page != DramaPage.Home) {
         if (page == DramaPage.Player) viewModel.closePlayback()
-        page = dramaBackDestination(page) ?: DramaPage.Home
+        page = dramaBackDestination(page, detailOrigin) ?: DramaPage.Home
     }
     // Android Back must not finish the Activity while the user is at the
     // drama root. The shared experience switch is the previous surface, so
     // return there just like Search/Settings return to the bookshelf.
     BackHandler(enabled = shouldHandleDramaHomeSystemBack(page)) {
         onHomeBack()
+    }
+
+    LaunchedEffect(page, rankingViewModel) {
+        if (page == DramaPage.Rankings && rankingViewModel != null &&
+            rankingState is RankingUiState.Empty && rankingState.request == null
+        ) {
+            rankingViewModel.refresh(defaultRankingRequest())
+        }
     }
 
     when (page) {
@@ -173,8 +197,10 @@ fun DramaScreen(
             onRetrySearch = viewModel::retrySearch,
             onOpenTitle = {
                 viewModel.openTitle(it)
+                detailOrigin = DramaPage.Home
                 page = DramaPage.Detail
             },
+            onOpenRankings = { page = DramaPage.Rankings },
             onOpenDownloads = {
                 viewModel.refreshDownloads()
                 page = DramaPage.Downloads
@@ -196,7 +222,7 @@ fun DramaScreen(
             selectedSource = source,
             episodes = episodes,
             selectedEpisodeIds = selectedEpisodeIds,
-            onBack = { page = DramaPage.Home },
+            onBack = { page = detailOrigin },
             onSelectSource = viewModel::selectSource,
             onToggleEpisode = viewModel::toggleEpisode,
             onPlayEpisode = {
@@ -205,6 +231,19 @@ fun DramaScreen(
             },
             onEnqueueSelected = viewModel::enqueueSelectedEpisodes,
             experienceSwitch = currentExperienceSwitch,
+            modifier = modifier
+        )
+        DramaPage.Rankings -> RankingScreen(
+            state = rankingState,
+            onBack = { page = DramaPage.Home },
+            onRefresh = { rankingViewModel?.retry() },
+            onRequest = { request -> rankingViewModel?.refresh(request) },
+            onLoadNextPage = { rankingViewModel?.loadNextPage() },
+            onSearch = { intent ->
+                page = DramaPage.Home
+                onRankingSearch(intent)
+            },
+            listState = rankingListState,
             modifier = modifier
         )
         DramaPage.Downloads -> DownloadQueueStyledScreen(
@@ -236,12 +275,14 @@ fun DramaExperience(
     modifier: Modifier = Modifier
 ) = DramaScreen(viewModel = viewModel, onHomeBack = onHomeBack, modifier = modifier)
 
-internal enum class DramaPage { Home, Detail, Downloads, Player }
+internal enum class DramaPage { Home, Rankings, Detail, Downloads, Player }
 
 internal fun usesDetailExperienceSwitch(page: DramaPage): Boolean = page == DramaPage.Detail
 
-internal fun dramaBackDestination(page: DramaPage): DramaPage? = when (page) {
-    DramaPage.Detail, DramaPage.Downloads -> DramaPage.Home
+internal fun dramaBackDestination(page: DramaPage, detailOrigin: DramaPage = DramaPage.Home): DramaPage? = when (page) {
+    DramaPage.Rankings -> DramaPage.Home
+    DramaPage.Detail -> if (detailOrigin == DramaPage.Rankings) DramaPage.Rankings else DramaPage.Home
+    DramaPage.Downloads -> DramaPage.Home
     DramaPage.Player -> DramaPage.Detail
     DramaPage.Home -> null
 }
@@ -304,6 +345,7 @@ internal fun DramaHomeStyledScreen(
     onRetrySearch: () -> Unit = {},
     onOpenTitle: (VideoTitle) -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenRankings: () -> Unit = {},
     onShowDiagnostics: (() -> Unit)?,
     experienceSwitch: @Composable () -> Unit,
     listState: LazyListState,
@@ -373,6 +415,30 @@ internal fun DramaHomeStyledScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = colors.roseBeige, contentColor = Color.White),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)
                     ) { Text("开始找剧", fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = onOpenRankings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .semantics { contentDescription = "打开排行榜" },
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, colors.lineColor),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text("排行榜", color = colors.cocoa, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("按真实数据能力发现新剧", color = colors.softGray, fontSize = 12.sp)
+                    }
+                    Text("›", color = colors.roseDust, fontSize = 22.sp)
                 }
             }
         }

@@ -60,6 +60,8 @@ import com.lovelyreader.ui.video.DramaRootResolver
 import com.lovelyreader.ui.video.DramaScreen
 import com.lovelyreader.ui.video.DramaViewModel
 import com.lovelyreader.ui.video.VideoLibraryDramaStore
+import com.lovelyreader.ui.video.ranking.RankingSearchIntent
+import com.lovelyreader.ui.video.ranking.RankingViewModel
 import com.lovelyreader.video.AndroidDownloadManagerGateway
 import com.lovelyreader.video.AndroidVideoPageFetcher
 import com.lovelyreader.video.AndroidVideoHostConnectivityProbe
@@ -70,6 +72,12 @@ import com.lovelyreader.video.DefaultVideoSiteAdapter
 import com.lovelyreader.video.VideoDownloadCoordinator
 import com.lovelyreader.video.VideoLibraryRepository
 import com.lovelyreader.video.VideoSiteResolver
+import com.lovelyreader.video.ranking.RankingDataSource
+import com.lovelyreader.video.ranking.RankingError
+import com.lovelyreader.video.ranking.RankingFailureKind
+import com.lovelyreader.video.ranking.RankingLoadResult
+import com.lovelyreader.video.ranking.RankingRepository
+import com.lovelyreader.video.ranking.RankingRequest
 import com.lovelyreader.update.AndroidAppUpdater
 import com.lovelyreader.update.UpdateDownloadPhase
 import com.lovelyreader.update.UpdateDownloadProgress
@@ -142,6 +150,27 @@ fun LovelyReaderApp(
             library = VideoLibraryDramaStore(videoRepository),
             downloadEnqueuer = DramaDownloadEnqueuer(videoCoordinator::download)
         )
+    }
+    // The aggregation endpoint is intentionally not guessed or replaced with
+    // local/fake data. Until a signed server feed is configured, the ranking
+    // surface reports a truthful unavailable state and remains independently
+    // isolated from the drama source and audiobook state.
+    val rankingRepository = remember(appContext) {
+        object : RankingRepository {
+            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult =
+                RankingLoadResult(
+                    snapshot = null,
+                    source = RankingDataSource.EMPTY,
+                    error = RankingError(
+                        kind = RankingFailureKind.SERVICE_UNAVAILABLE,
+                        message = "排行榜服务暂未配置",
+                        retryable = true
+                    )
+                )
+        }
+    }
+    val rankingViewModel: RankingViewModel = viewModel {
+        RankingViewModel(rankingRepository)
     }
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -405,6 +434,13 @@ fun LovelyReaderApp(
         } else if (experience == AppExperience.Drama) {
             DramaScreen(
                 viewModel = dramaViewModel,
+                rankingViewModel = rankingViewModel,
+                onRankingSearch = { intent: RankingSearchIntent ->
+                    // The canonical ranking identity never enters the source
+                    // detail route; only its user-facing search title is
+                    // handed to the existing drama search flow.
+                    dramaViewModel.search(intent.displayTitle)
+                },
                 debugDiagnostics = if (isDebugBuild) videoPageFetcher::diagnostics else null,
                 experienceSwitch = renderDramaHomeExperienceSwitch,
                 detailExperienceSwitch = renderDramaDetailExperienceSwitch,
