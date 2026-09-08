@@ -33,6 +33,17 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace("\"limit\":20", "\"limit\":51"), now).isFailure)
     }
 
+    @Test fun `rejects bracketed or alternate private IPv4 poster hosts`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[::1]/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://[fd00::1]/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "https://127.1/poster.jpg"), now).isFailure)
+    }
+
+    @Test fun `rejects integer fields that overflow Int`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("\"rank\":1", "\"rank\":2147483648"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"sourceCount\":2", "\"sourceCount\":2147483648"), now).isFailure)
+    }
+
     @Test fun `ignores unknown fields`() {
         assertTrue(parseRankingSnapshot(fixture.replaceFirst("{", "{\"futureField\":true,"), now).isSuccess)
     }
