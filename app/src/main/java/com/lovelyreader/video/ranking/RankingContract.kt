@@ -11,24 +11,33 @@ private fun text(value: String?, name: String, required: Boolean = true): String
     require(value.length <= MAX_TEXT) { "$name is oversized" }; return value
 }
 private fun obj(o: JSONObject, name: String) = o.optJSONObject(name) ?: error("missing $name")
-private fun nullable(o: JSONObject, n: String): String? = if (o.isNull(n)) null else o.optString(n, null)
+private fun optionalText(o: JSONObject, n: String): String? {
+    if (!o.has(n) || o.isNull(n)) return null
+    return text(o.get(n) as? String ?: error("$n must be text"), n, false)
+}
+private fun requiredText(o: JSONObject, n: String): String = text(o.get(n) as? String ?: error("missing or invalid $n"), n)!!
+private fun nullable(o: JSONObject, n: String): String? = optionalText(o, n)
 private fun media(s: String) = runCatching { RankingMediaType.valueOf(s) }.getOrElse { error("invalid mediaType") }
 private fun instant(s: String, name: String): InstantLike = runCatching { InstantLike(Instant.parse(s).toEpochMilli()) }.getOrElse { error("invalid $name") }
+private fun number(o: JSONObject, n: String, integer: Boolean = false): Double {
+    val v = o.get(n); require(v is Number) { "$n must be a JSON number" }; val d = v.toDouble(); require(d.isFinite()) { "invalid $n" }
+    if (integer) require(d == d.toLong().toDouble()) { "$n must be integer" }; return d
+}
 private fun rank(v: Int?, name: String): Int? { if (v != null) require(v >= 1) { "invalid $name" }; return v }
-private fun strings(a: JSONArray?, name: String): List<String> = (0 until (a?.length() ?: 0)).map { text(a!!.getString(it), name)!! }
+private fun array(o: JSONObject, n: String): JSONArray? { if (!o.has(n) || o.isNull(n)) return null; return o.get(n) as? JSONArray ?: error("$n must be array") }
+private fun strings(a: JSONArray?, name: String): List<String> = (0 until (a?.length() ?: 0)).map { text(a!!.get(it) as? String ?: error("$name must be text"), name)!! }
 private fun coverage(o: JSONObject): RankingCoverage {
-    val count = o.optInt("sourceCount", -1); require(count >= 0)
+    val count = number(o, "sourceCount", true).toInt(); require(count >= 0)
     val ids = strings(o.optJSONArray("coveredSourceIds"), "coveredSourceId")
     require(count == ids.size || count > ids.size) { "invalid coverage" }
-    return RankingCoverage(count, ids, o.optBoolean("complete", false))
+    val complete = if (!o.has("complete")) false else o.get("complete") as? Boolean ?: error("complete must be boolean")
+    return RankingCoverage(count, ids, complete)
 }
 private fun ratings(a: JSONArray?): List<SourceRating> = (0 until (a?.length() ?: 0)).map {
-    val o = a!!.getJSONObject(it); SourceRating(text(o.optString("sourceId", null), "sourceId")!!,
-        if (o.isNull("value")) null else o.optDouble("value"), if (o.isNull("scaleMax")) null else o.optDouble("scaleMax"), if (o.isNull("voteCount")) null else o.optInt("voteCount"))
+    val o = a!!.getJSONObject(it); SourceRating(requiredText(o, "sourceId"), if (o.isNull("value")) null else number(o, "value"), if (o.isNull("scaleMax")) null else number(o, "scaleMax"), if (o.isNull("voteCount")) null else number(o, "voteCount", true).toInt())
 }
 private fun ranks(a: JSONArray?): List<SourceRank> = (0 until (a?.length() ?: 0)).map {
-    val o = a!!.getJSONObject(it); SourceRank(text(o.optString("sourceId", null), "sourceId")!!,
-        if (o.isNull("rank")) null else rank(o.optInt("rank"), "rank"), if (o.isNull("previousRank")) null else rank(o.optInt("previousRank"), "previousRank"), if (o.isNull("rankDelta")) null else o.optInt("rankDelta"), o.optBoolean("isNew", false))
+    val o = a!!.getJSONObject(it); SourceRank(requiredText(o, "sourceId"), if (o.isNull("rank")) null else rank(number(o, "rank", true).toInt(), "rank"), if (o.isNull("previousRank")) null else rank(number(o, "previousRank", true).toInt(), "previousRank"), if (o.isNull("rankDelta")) null else number(o, "rankDelta", true).toInt(), if (!o.has("isNew")) false else o.get("isNew") as? Boolean ?: error("isNew must be boolean"))
 }
 
 fun validateRankingRequest(request: RankingRequest): Result<RankingRequest> = runCatching {
@@ -41,29 +50,42 @@ fun validateRankingRequest(request: RankingRequest): Result<RankingRequest> = ru
 
 fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis(), expectedSchemaVersion: Int = 1): Result<RankingSnapshot> = runCatching {
     val root = JSONObject(raw)
-    require(root.optInt("schemaVersion", -1) == expectedSchemaVersion) { "unsupported schema" }
-    val requestId = text(root.optString("requestId", null), "requestId")!!
-    val boardId = text(root.optString("boardId", null), "boardId")!!
+    require(number(root, "schemaVersion", true).toInt() == expectedSchemaVersion) { "unsupported schema" }
+    val requestId = requiredText(root, "requestId")
+    val boardId = requiredText(root, "boardId")
     val f = obj(root, "filters")
-    val filters = RankingFilters(nullable(f, "period"), media(f.optString("mediaType")), nullable(f, "region"), if (f.isNull("year")) null else f.optInt("year"), nullable(f, "genre"), nullable(f, "language"), f.optInt("limit", -1), nullable(f, "cursor"))
+    val filters = RankingFilters(nullable(f, "period"), media(requiredText(f, "mediaType")), nullable(f, "region"), if (f.isNull("year")) null else number(f, "year", true).toInt(), nullable(f, "genre"), nullable(f, "language"), number(f, "limit", true).toInt(), nullable(f, "cursor"))
     require(filters.limit in 1..50)
-    val snapshotId = text(root.optString("snapshotId", null), "snapshotId")!!
-    val generated = instant(root.optString("generatedAt", ""), "generatedAt")
-    val data = instant(root.optString("dataAsOf", ""), "dataAsOf")
-    val expires = instant(root.optString("expiresAt", ""), "expiresAt")
-    val stale = instant(root.optString("staleUntil", ""), "staleUntil")
+    val snapshotId = requiredText(root, "snapshotId")
+    val generated = instant(requiredText(root, "generatedAt"), "generatedAt")
+    val data = instant(requiredText(root, "dataAsOf"), "dataAsOf")
+    val expires = instant(requiredText(root, "expiresAt"), "expiresAt")
+    val stale = instant(requiredText(root, "staleUntil"), "staleUntil")
     listOf(generated, data).forEach { require(it.epochMillis <= nowMillis) { "future timestamp" } }
     require(data.epochMillis <= generated.epochMillis && generated.epochMillis <= expires.epochMillis && expires.epochMillis <= stale.epochMillis)
     val freshness = runCatching { RankingFreshness.valueOf(root.optString("freshness")) }.getOrElse { error("invalid freshness") }
     val availability = runCatching { RankingAvailability.valueOf(root.optString("availability")) }.getOrElse { error("invalid availability") }
     val cov = coverage(obj(root, "coverage"))
-    val statuses = (0 until root.optJSONArray("sourceStatuses").length()).map { val s = root.getJSONArray("sourceStatuses").getJSONObject(it); RankingSourceStatus(text(s.optString("sourceId", null), "sourceId")!!, runCatching { RankingSourceHealth.valueOf(s.optString("status")) }.getOrElse { error("invalid source status") }) }
+    val statusesJson = root.get("sourceStatuses") as? JSONArray ?: error("missing sourceStatuses")
+    val statuses = (0 until statusesJson.length()).map { val s = statusesJson.getJSONObject(it); val errorCode = optionalText(s, "errorCode")?.let { code -> runCatching { RankingErrorCode.valueOf(code) }.getOrNull() }; RankingSourceStatus(requiredText(s, "sourceId"), runCatching { RankingSourceHealth.valueOf(requiredText(s, "status")) }.getOrElse { error("invalid source status") }, errorCode) }
     val itemsJson = root.optJSONArray("items") ?: error("missing items")
     val seenIds = mutableSetOf<String>(); val seenRanks = mutableSetOf<Int>(); val items = (0 until itemsJson.length()).map { i ->
-        val e = itemsJson.getJSONObject(i); val id = text(e.optString("canonicalId", null), "canonicalId")!!; require(seenIds.add(id)) { "duplicate canonicalId" }
-        val r = if (e.isNull("rank")) null else rank(e.optInt("rank"), "rank"); if (r != null) require(seenRanks.add(r)) { "duplicate rank" }
-        val poster = nullable(e, "posterUrl"); poster?.let { val u = URI(it); require(u.scheme == "https" && !u.host.isNullOrBlank() && u.userInfo == null) { "invalid posterUrl" } }
-        RankingEntry(id, r, text(e.optString("displayTitle", null), "displayTitle")!!, nullable(e, "originalTitle"), strings(e.optJSONArray("aliases"), "alias"), media(e.optString("mediaType")), if (e.isNull("releaseYear")) null else e.optInt("releaseYear"), strings(e.optJSONArray("countries"), "country"), strings(e.optJSONArray("genres"), "genre"), poster, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else e.optDouble("aggregateScore"), ratings(e.optJSONArray("sourceRatings")), ranks(e.optJSONArray("sourceRanks")), coverage(obj(e, "coverage")), text(e.optString("searchTitle", null), "searchTitle")!!)
+        val e = itemsJson.getJSONObject(i); val id = requiredText(e, "canonicalId"); require(seenIds.add(id)) { "duplicate canonicalId" }
+        val r = if (e.isNull("rank")) null else rank(number(e, "rank", true).toInt(), "rank"); if (r != null) require(seenRanks.add(r)) { "duplicate rank" }
+        val poster = nullable(e, "posterUrl"); poster?.let { val u = URI(it); require(u.scheme.equals("https", true) && !u.host.isNullOrBlank() && u.userInfo == null && isPublicHost(u.host)) { "invalid posterUrl" } }
+        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else number(e, "releaseYear", true).toInt(), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), poster, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else number(e, "aggregateScore"), ratings(array(e, "sourceRatings")), ranks(array(e, "sourceRanks")), coverage(obj(e, "coverage")), requiredText(e, "searchTitle"))
     }
     RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"))
+}
+
+private fun isPublicHost(host: String): Boolean {
+    val lower = host.lowercase()
+    if (lower == "localhost" || lower.endsWith(".localhost") || lower.endsWith(".local")) return false
+    if (lower.contains(":")) {
+        return !(lower == "::" || lower == "::1" || lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb") || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("ff") || lower.startsWith("2001:db8:"))
+    }
+    val octets = lower.split('.').mapNotNull { it.toIntOrNull() }
+    if (octets.size != 4 || octets.any { it !in 0..255 }) return true
+    val a = octets[0]; val b = octets[1]
+    return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255
 }
