@@ -167,4 +167,29 @@ class RankingContractTest {
         assertTrue(parseRankingSnapshot(fixture.replace("\"freshness\":\"FRESH\"", "\"freshness\":\"STALE\""), now).isFailure)
         assertTrue(parseRankingSnapshot(fixture.replace("\"freshness\":\"FRESH\"", "\"freshness\":\"EXPIRED\""), now).isFailure)
     }
+
+    @Test fun `rejects availability states that contradict entries or source health`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"EMPTY\""), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"PARTIAL\""), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"UNAVAILABLE\""), now).isFailure)
+        val empty = fixture.substringBefore("\"items\":[")
+            .replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"EMPTY\"") +
+            "\"items\":[],\"nextCursor\":null}"
+        assertTrue(parseRankingSnapshot(empty, now).isSuccess)
+    }
+
+    @Test fun `requires error codes only for unavailable source statuses`() {
+        assertTrue(
+            parseRankingSnapshot(
+                fixture.replace("\"sourceId\":\"a\",\"status\":\"AVAILABLE\"", "\"sourceId\":\"a\",\"status\":\"AVAILABLE\",\"errorCode\":\"NO_SNAPSHOT\"") ,
+                now
+            ).isFailure
+        )
+        val missingErrorCode = fixture
+            .replace("\"sourceId\":\"b\",\"status\":\"AVAILABLE\"", "\"sourceId\":\"b\",\"status\":\"UNAVAILABLE\"")
+            .replace("\"availability\":\"AVAILABLE\"", "\"availability\":\"PARTIAL\"")
+            .replace("\"coveredSourceIds\":[\"a\",\"b\"]", "\"coveredSourceIds\":[\"a\"]")
+            .replace("\"complete\":true", "\"complete\":false")
+        assertTrue(parseRankingSnapshot(missingErrorCode, now).isFailure)
+    }
 }

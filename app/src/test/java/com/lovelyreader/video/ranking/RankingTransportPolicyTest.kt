@@ -282,7 +282,7 @@ class RankingTransportPolicyTest {
         expiresAt = InstantLike(expiresAt),
         staleUntil = InstantLike(staleUntil),
         freshness = RankingFreshness.FRESH,
-        availability = RankingAvailability.AVAILABLE,
+        availability = RankingAvailability.EMPTY,
         coverage = RankingCoverage(1, listOf("source"), true),
         sourceStatuses = listOf(RankingSourceStatus("source", RankingSourceHealth.AVAILABLE)),
         items = emptyList(),
