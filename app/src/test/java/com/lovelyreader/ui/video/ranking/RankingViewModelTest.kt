@@ -116,6 +116,34 @@ class RankingViewModelTest {
     }
 
     @Test
+    fun `capability handshake failure is retryable and never reported as an empty success`() = runTest {
+        var capabilityCalls = 0
+        val repository = object : RankingRepository {
+            override suspend fun loadCapabilities(): Result<RankingCapabilities> {
+                capabilityCalls++
+                return Result.failure(IllegalStateException("offline"))
+            }
+
+            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult {
+                error("ranking endpoint must not be called")
+            }
+        }
+        val viewModel = RankingViewModel(repository, this)
+
+        viewModel.refreshInitial()
+        advanceUntilIdle()
+
+        val state = viewModel.state.value as RankingUiState.Empty
+        assertEquals(1, capabilityCalls)
+        assertEquals(RankingFailureKind.NETWORK, state.error?.kind)
+        assertTrue(state.canRetry)
+
+        viewModel.retry()
+        advanceUntilIdle()
+        assertEquals(2, capabilityCalls)
+    }
+
+    @Test
     fun `configured capabilities are retained across loading and result states`() = runTest {
         val capabilities = RankingCapabilities(
             supportedBoards = listOf(RankingBoardOption("aggregate", "综合")),
