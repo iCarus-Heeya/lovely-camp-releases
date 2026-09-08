@@ -84,34 +84,11 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
 private fun isPublicHost(host: String): Boolean {
     val lower = host.lowercase().removePrefix("[").removeSuffix("]")
     if (lower == "localhost" || lower.endsWith(".localhost") || lower.endsWith(".local")) return false
-    if (lower.startsWith("::ffff:")) {
-        val mapped = lower.removePrefix("::ffff:")
-        if (mapped.contains(':')) {
-            val h = mapped.split(':'); if (h.size == 2) {
-                val hi = h[0].toLongOrNull(16); val lo = h[1].toLongOrNull(16)
-                if (hi != null && lo != null && hi <= 0xffff && lo <= 0xffff) return isPublicHost(((hi shl 16) or lo).toString())
-            }
-        }
-        return isPublicHost(mapped)
+    fun publicV4(v: Long): Boolean { val a = (v ushr 24).toInt(); val b = (v ushr 16 and 255).toInt(); return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255 }
+    fun v4(s: String): Long? { val p=s.split('.'); if(p.any{it.isEmpty()}) return null; val n=p.map{it.toLongOrNull()?:return null}; if(n.size==1)return n[0].takeIf{it in 0..0xffffffffL}; if(n.size>4||n.any{it !in 0..255})return null; return when(n.size){2->(n[0] shl 24) or n[1];3->(n[0] shl 24) or (n[1] shl 16) or n[2];else->(n[0] shl 24) or (n[1] shl 16) or (n[2] shl 8) or n[3]} }
+    if (lower.contains(':')) {
+        val parts=lower.split("::"); if(parts.size>2)return false; val left=if(parts[0].isEmpty())emptyList()else parts[0].split(':'); val right=if(parts.size==2&&parts[1].isNotEmpty())parts[1].split(':')else emptyList(); val all=left+right; val expanded=all.flatMap{if(it.contains('.')){val x=v4(it)?:return false;listOf((x ushr 16).toString(16), (x and 65535).toString(16))}else listOf(it)}; if(expanded.any{it.toLongOrNull(16)?.let{n->n in 0..65535L}!=true}||expanded.size>8||(parts.size==1&&expanded.size!=8)||(parts.size==2&&expanded.size==8))return false; val h=(if(parts.size==2)List(8-expanded.size){"0"}else emptyList()) .let{if(parts.size==2) (left+right).flatMap{if(it.contains('.')){val x=v4(it)?:return false;listOf((x ushr 16).toString(16),(x and 65535).toString(16))}else listOf(it)}.let{it.map{n->n.toLong(16)}.let{z->List(8-z.size){0L}+z}} else expanded.map{it.toLong(16)}}; if(h.take(5).all{it==0L}&&h[5]==65535L)return publicV4((h[6] shl 16) or h[7]); if(h.take(6).all{it==0L})return publicV4((h[6] shl 16) or h[7]); return !(h.all{it==0L}||h.take(7).all{it==0L}&&h[7]==1L||h[0] in 0xfc00..0xfdff||h[0] in 0xfe80..0xfebf||h[0] in 0xff00..0xffff||h[0]==0x2001L&&h[1]==0xdb8L)
     }
-    if (lower.contains(":")) {
-        return !(lower == "::" || lower == "::1" || lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb") || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("ff") || lower.startsWith("2001:db8:"))
-    }
-    if (lower.contains('.') || lower.all { it.isDigit() }) {
-        val parts = if (lower.all { it.isDigit() }) listOf(lower.toLongOrNull() ?: return false) else lower.split('.').map { it.toLongOrNull() ?: return true }
-        if (parts.size == 1) {
-            val value = parts[0]; require(value in 0..0xffffffffL)
-            val a = ((value ushr 24) and 255).toInt(); val b = ((value ushr 16) and 255).toInt()
-            return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255
-        }
-        if (parts.isEmpty() || parts.size > 4 || parts.any { it !in 0..255 }) return true
-        val value = when (parts.size) { 1 -> parts[0]; 2 -> (parts[0] shl 24) or parts[1]; 3 -> (parts[0] shl 24) or (parts[1] shl 16) or parts[2]; else -> (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3] }
-        val a = ((value ushr 24) and 255).toInt(); val b = ((value ushr 16) and 255).toInt()
-        return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255
-    }
-    if (lower.any { it in "[]" }) return false
-    val octets = lower.split('.').mapNotNull { it.toIntOrNull() }
-    if (octets.size != 4 || octets.any { it !in 0..255 }) return true
-    val a = octets[0]; val b = octets[1]
-    return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255
+    if (lower.all{it.isDigit()||it=='.'}) return v4(lower)?.let(::publicV4) ?: false
+    return true
 }
