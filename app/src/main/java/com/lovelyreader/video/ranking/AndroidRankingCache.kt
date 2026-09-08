@@ -28,13 +28,17 @@ class AndroidRankingCache(
         try {
             val envelope = JSONObject(raw)
             require(envelope.getInt("version") == CACHE_VERSION)
+            val now = clockMillis()
             val cachedAt = envelope.getLong("cachedAtMillis")
-            require(cachedAt in 0..clockMillis())
+            require(cachedAt in 0..now)
             val etag = if (envelope.isNull("etag")) null else safeEtag(envelope.getString("etag"))
             val snapshotJson = envelope.getJSONObject("snapshot")
             require(snapshotJson.has("hasMorePages"))
             val hasMorePages = snapshotJson.getBoolean("hasMorePages")
-            val snapshot = parseRankingSnapshot(snapshotJson.toString(), clockMillis()).getOrThrow()
+            // Freshness is a time-relative presentation property. Recompute it
+            // on every read so a valid snapshot can transition to STALE after
+            // its original write instead of being discarded as inconsistent.
+            val snapshot = parseRankingSnapshot(snapshotJson.withFreshnessAt(now).toString(), now).getOrThrow()
             CachedRanking(snapshot, cachedAt, etag, hasMorePages)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -76,6 +80,18 @@ private fun RankingSnapshot.toCacheJson(): JSONObject = copy(
     filters = filters.copy(cursor = null),
     nextCursor = null
 ).toJson().put("hasMorePages", nextCursor != null)
+
+private fun JSONObject.withFreshnessAt(nowMillis: Long): JSONObject {
+    val copy = JSONObject(toString())
+    val expiresAt = Instant.parse(copy.getString("expiresAt")).toEpochMilli()
+    val staleUntil = Instant.parse(copy.getString("staleUntil")).toEpochMilli()
+    val freshness = when {
+        nowMillis < expiresAt -> RankingFreshness.FRESH
+        nowMillis <= staleUntil -> RankingFreshness.STALE
+        else -> RankingFreshness.EXPIRED
+    }
+    return copy.put("freshness", freshness.name)
+}
 
 private fun RankingSnapshot.toJson() = JSONObject()
     .put("schemaVersion", schemaVersion)

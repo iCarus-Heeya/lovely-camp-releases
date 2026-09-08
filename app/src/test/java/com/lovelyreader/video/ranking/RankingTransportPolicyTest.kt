@@ -235,6 +235,19 @@ class RankingTransportPolicyTest {
     }
 
     @Test
+    fun `android cache recomputes freshness when a written snapshot becomes stale`() = runTest {
+        val preferences = MemoryPreferences()
+        val cache = AndroidRankingCache(preferences, clockMillis = { 1_000 })
+        val key = rankingCacheKey(request)
+
+        cache.write(key, cacheSnapshot(expiresAt = 900, staleUntil = 2_000), "etag-1", 800)
+
+        val restored = cache.read(key)
+
+        assertEquals(RankingFreshness.STALE, restored?.snapshot?.freshness)
+    }
+
+    @Test
     fun `android cache removes corrupt and oversized entries instead of surfacing content`() = runTest {
         val key = rankingCacheKey(request)
         val corrupt = MemoryPreferences(mutableMapOf(key to "not-json"))
@@ -258,7 +271,7 @@ class RankingTransportPolicyTest {
         }
     }
 
-    private fun cacheSnapshot() = RankingSnapshot(
+    private fun cacheSnapshot(expiresAt: Long = 2_000, staleUntil: Long = 3_000) = RankingSnapshot(
         schemaVersion = 1,
         requestId = "request-cache",
         boardId = request.boardId,
@@ -266,8 +279,8 @@ class RankingTransportPolicyTest {
         snapshotId = "snapshot-cache",
         generatedAt = InstantLike(500),
         dataAsOf = InstantLike(400),
-        expiresAt = InstantLike(2_000),
-        staleUntil = InstantLike(3_000),
+        expiresAt = InstantLike(expiresAt),
+        staleUntil = InstantLike(staleUntil),
         freshness = RankingFreshness.FRESH,
         availability = RankingAvailability.AVAILABLE,
         coverage = RankingCoverage(1, listOf("source"), true),
