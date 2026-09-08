@@ -84,11 +84,26 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
 private fun isPublicHost(host: String): Boolean {
     val lower = host.lowercase().removePrefix("[").removeSuffix("]")
     if (lower == "localhost" || lower.endsWith(".localhost") || lower.endsWith(".local")) return false
+    if (lower.startsWith("::ffff:")) {
+        val mapped = lower.removePrefix("::ffff:")
+        if (mapped.contains(':')) {
+            val h = mapped.split(':'); if (h.size == 2) {
+                val hi = h[0].toLongOrNull(16); val lo = h[1].toLongOrNull(16)
+                if (hi != null && lo != null && hi <= 0xffff && lo <= 0xffff) return isPublicHost(((hi shl 16) or lo).toString())
+            }
+        }
+        return isPublicHost(mapped)
+    }
     if (lower.contains(":")) {
         return !(lower == "::" || lower == "::1" || lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb") || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("ff") || lower.startsWith("2001:db8:"))
     }
-    if (lower.contains('.')) {
-        val parts = lower.split('.').map { it.toLongOrNull() ?: return true }
+    if (lower.contains('.') || lower.all { it.isDigit() }) {
+        val parts = if (lower.all { it.isDigit() }) listOf(lower.toLongOrNull() ?: return false) else lower.split('.').map { it.toLongOrNull() ?: return true }
+        if (parts.size == 1) {
+            val value = parts[0]; require(value in 0..0xffffffffL)
+            val a = ((value ushr 24) and 255).toInt(); val b = ((value ushr 16) and 255).toInt()
+            return a != 0 && a != 10 && a != 127 && !(a == 169 && b == 254) && !(a == 172 && b in 16..31) && !(a == 192 && b == 168) && !(a == 100 && b in 64..127) && a !in 224..255
+        }
         if (parts.isEmpty() || parts.size > 4 || parts.any { it !in 0..255 }) return true
         val value = when (parts.size) { 1 -> parts[0]; 2 -> (parts[0] shl 24) or parts[1]; 3 -> (parts[0] shl 24) or (parts[1] shl 16) or parts[2]; else -> (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3] }
         val a = ((value ushr 24) and 255).toInt(); val b = ((value ushr 16) and 255).toInt()
