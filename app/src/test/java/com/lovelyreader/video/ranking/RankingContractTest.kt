@@ -1,0 +1,42 @@
+package com.lovelyreader.video.ranking
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class RankingContractTest {
+    private val now = 1_700_000_000_000L
+    private val fixture = """
+        {"schemaVersion":1,"requestId":"req-1","boardId":"popular","filters":{"period":"week","mediaType":"ALL","region":null,"year":null,"genre":null,"language":null,"limit":20,"cursor":null},"snapshotId":"snap-1","generatedAt":"2023-11-14T22:00:00Z","dataAsOf":"2023-11-14T21:00:00Z","expiresAt":"2023-11-15T22:00:00Z","staleUntil":"2023-11-16T22:00:00Z","freshness":"FRESH","availability":"AVAILABLE","coverage":{"sourceCount":2,"coveredSourceIds":["a","b"],"complete":true},"sourceStatuses":[{"sourceId":"a","status":"AVAILABLE"}],"items":[{"canonicalId":"tt-1","rank":1,"displayTitle":"示例片","originalTitle":"Example","aliases":["样例"],"mediaType":"MOVIE","releaseYear":2023,"countries":["CN"],"genres":["Drama"],"posterUrl":"https://img.example/poster.jpg","summary":"summary","aggregateScore":8.5,"sourceRatings":[{"sourceId":"a","value":8.5,"scaleMax":10.0,"voteCount":100}],"sourceRanks":[{"sourceId":"a","rank":1,"previousRank":2,"rankDelta":1,"isNew":false}],"coverage":{"sourceCount":1,"coveredSourceIds":["a"],"complete":true},"searchTitle":"示例片"}],"nextCursor":"next"}
+    """.trimIndent()
+
+    @Test fun `parses valid fixture and preserves optional values`() {
+        val result = parseRankingSnapshot(fixture, now)
+        assertTrue(result.isSuccess)
+        val snapshot = result.getOrThrow()
+        assertEquals("snap-1", snapshot.snapshotId)
+        assertEquals("next", snapshot.nextCursor)
+        assertEquals(8.5, snapshot.items.single().aggregateScore!!, 0.0)
+    }
+
+    @Test fun `ignores unknown fields`() {
+        assertTrue(parseRankingSnapshot(fixture.replaceFirst("{", "{\"futureField\":true,"), now).isSuccess)
+    }
+
+    @Test fun `rejects duplicate canonical ids and ranks`() {
+        val second = fixture.replace("\"items\":[{", "\"items\":[{")
+            .replace("}],\"nextCursor\"", "},{\"canonicalId\":\"tt-1\",\"rank\":2,\"displayTitle\":\"Second\",\"aliases\":[],\"mediaType\":\"MOVIE\",\"countries\":[],\"genres\":[],\"coverage\":{\"sourceCount\":0,\"coveredSourceIds\":[],\"complete\":true},\"searchTitle\":\"Second\"}],\"nextCursor\"")
+        assertTrue(parseRankingSnapshot(second, now).isFailure)
+        val duplicateRank = second.replace("\"canonicalId\":\"tt-1\",\"rank\":2", "\"canonicalId\":\"tt-2\",\"rank\":1")
+        assertTrue(parseRankingSnapshot(duplicateRank, now).isFailure)
+    }
+
+    @Test fun `rejects missing fields invalid poster stale future schema and limit`() {
+        assertTrue(parseRankingSnapshot(fixture.replace("\"requestId\":\"req-1\",", ""), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "http://img.example/poster.jpg"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"freshness\":\"FRESH\"", "\"freshness\":\"STALE\""), now).isSuccess)
+        assertTrue(parseRankingSnapshot(fixture.replace("2023-11-14T22:00:00Z", "2030-11-14T22:00:00Z"), now).isFailure)
+        assertTrue(parseRankingSnapshot(fixture.replace("\"schemaVersion\":1", "\"schemaVersion\":2"), now).isFailure)
+        assertTrue(validateRankingRequest(RankingRequest("x", null, RankingMediaType.ALL, null, null, null, null, 51)).isFailure)
+    }
+}
