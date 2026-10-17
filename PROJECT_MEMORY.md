@@ -1726,3 +1726,9 @@ Last known verified release state:
 - v0.9.34/121 根目录只保留版本化 Debug/Release pair，v0.9.33 归档于 `artifacts/releases/legacy/20261005-v0.9.33-before-v0.9.34-ranking-filter-poster/`；候选在 `artifacts/candidates/20261005-ranking-filter-poster-v0.9.34/`。Debug SHA `459F8E0602C4DBFD0B08001DA280F91E12CC6B4CE05830062BC77129C671199B`，Release SHA `27E46D700E5A69ED62B2CDE8659D3559776A152DF68DCFB437BBF08912E4B1F8`。
 - 回归：Python `26/26`；Android JVM `589/0/0/8 skipped`；Debug/Release assemble、aapt2、apksigner v2、zipalign 通过。SA/UX/QA/QC-数据/QC-回归/QC-视觉证据分开列于 release record 与 candidate README。本候选未 source push/tag/Latest Release，仍不称为 public release；全量合法海报、授权多站实时排行、golden 像素/无障碍仍未签收。
 - 本项目没有写入任何 worklog、timesheet、ZenTao 或工时报告。
+
+## 2026-10-18 Round53 发布通道复核
+
+- 本地提交 `c368cab` 和 annotated tag `v0.9.38+125` 已生成。
+- `git push origin main` 与 tag 推送被当前环境阻断：全局 URL 重写到 `kkgithub.com` 后 TLS 报 `SEC_E_WRONG_PRINCIPAL`；关闭校验后镜像不支持 DAV locking；直连 GitHub 443 不可达。
+- 因此本轮只确认本地候选与本地 tag，未声称源码已远端可见、Latest Release 已创建或 updater 公网资产可下载。
