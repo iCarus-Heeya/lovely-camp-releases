@@ -149,6 +149,7 @@ private fun RankingEntry.toJson() = JSONObject()
     .put("sourceRanks", JSONArray(sourceRanks.map { it.toJson() }))
     .put("coverage", coverage.toJson())
     .put("searchTitle", searchTitle)
+    .put("rankingScore", rankingScore ?: JSONObject.NULL)
 
 private fun SourceRating.toJson() = JSONObject()
     .put("sourceId", sourceId)

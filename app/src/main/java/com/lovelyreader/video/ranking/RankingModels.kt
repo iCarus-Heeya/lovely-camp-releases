@@ -64,7 +64,10 @@ data class RankingCapabilities(
 data class RankingRequest(
     val boardId: String, val period: String?, val mediaType: RankingMediaType,
     val region: String?, val year: Int?, val genre: String?, val language: String?,
-    val limit: Int = 20, val cursor: String? = null
+    // The bundled snapshot contains a broad, stratified catalogue.  Request
+    // the contract maximum by default so recent/regional entries are visible
+    // without making the user discover a hidden pagination affordance.
+    val limit: Int = 50, val cursor: String? = null
 )
 
 data class RankingFilters(
@@ -75,6 +78,15 @@ data class RankingFilters(
 data class SourceRating(val sourceId: String, val value: Double?, val scaleMax: Double?, val voteCount: Int?)
 data class SourceRank(val sourceId: String, val rank: Int?, val previousRank: Int?, val rankDelta: Int?, val isNew: Boolean)
 data class RankingCoverage(val sourceCount: Int, val coveredSourceIds: List<String>, val complete: Boolean)
+/** Conservative full-catalog metadata counts declared by the bundled index. */
+data class RankingMetadataCoverage(
+    val total: Int,
+    val chineseTitle: Int,
+    val summary: Int,
+    val poster: Int,
+    val region: Int,
+    val rating: Int
+)
 data class RankingSourceStatus(val sourceId: String, val status: RankingSourceHealth, val errorCode: RankingErrorCode? = null)
 
 data class RankingEntry(
@@ -82,7 +94,9 @@ data class RankingEntry(
     val aliases: List<String>, val mediaType: RankingMediaType, val releaseYear: Int?,
     val countries: List<String>, val genres: List<String>, val posterUrl: String?, val summary: String?,
     val aggregateScore: Double?, val sourceRatings: List<SourceRating>, val sourceRanks: List<SourceRank>,
-    val coverage: RankingCoverage, val searchTitle: String
+    val coverage: RankingCoverage, val searchTitle: String,
+    /** The exact score used by the selected board's sort key, when declared. */
+    val rankingScore: Double? = null
 )
 
 data class RankingSnapshot(
@@ -94,5 +108,9 @@ data class RankingSnapshot(
     /** Version of the aggregation formula used for aggregateScore. */
     val methodologyVersion: String? = null,
     /** Version of the cross-source identity map used for canonicalId. */
-    val identityMapVersion: String? = null
+    val identityMapVersion: String? = null,
+    /** Number of rows matching the filters in this immutable snapshot, when declared by the source. */
+    val totalCount: Int? = null,
+    /** Full-catalog metadata counts, when the source declares them. */
+    val metadataCoverage: RankingMetadataCoverage? = null
 )

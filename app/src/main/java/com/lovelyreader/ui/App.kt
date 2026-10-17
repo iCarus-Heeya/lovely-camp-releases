@@ -1,5 +1,6 @@
 package com.lovelyreader.ui
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
@@ -48,6 +49,7 @@ import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lovelyreader.data.AndroidLibraryPersistence
 import com.lovelyreader.data.LibraryRepository
+import com.lovelyreader.audiobook.AudiobookViewModel
 import com.lovelyreader.domain.Book
 import com.lovelyreader.sync.ReadingLogSync
 import com.lovelyreader.domain.BookDetail
@@ -72,12 +74,8 @@ import com.lovelyreader.video.DefaultVideoSiteAdapter
 import com.lovelyreader.video.VideoDownloadCoordinator
 import com.lovelyreader.video.VideoLibraryRepository
 import com.lovelyreader.video.VideoSiteResolver
-import com.lovelyreader.video.ranking.RankingDataSource
-import com.lovelyreader.video.ranking.RankingError
-import com.lovelyreader.video.ranking.RankingFailureKind
-import com.lovelyreader.video.ranking.RankingLoadResult
 import com.lovelyreader.video.ranking.RankingRepository
-import com.lovelyreader.video.ranking.RankingRequest
+import com.lovelyreader.video.ranking.BundledRankingRepository
 import com.lovelyreader.update.AndroidAppUpdater
 import com.lovelyreader.update.UpdateDownloadPhase
 import com.lovelyreader.update.UpdateDownloadProgress
@@ -100,6 +98,7 @@ sealed class Screen {
     data object Search : Screen()
     data class Detail(val result: SearchResult) : Screen()
     data class Reader(val bookId: String) : Screen()
+    data object AudioBooks : Screen()
     data object Settings : Screen()
 }
 
@@ -119,6 +118,9 @@ fun LovelyReaderApp(
     val bookDownloadScheduler = remember(appContext) { AndroidBookDownloadScheduler(appContext) }
     val viewModel: LibraryViewModel = viewModel {
         LibraryViewModel(repository, persistence, sync, bookDownloadScheduler)
+    }
+    val audiobookViewModel: AudiobookViewModel = viewModel {
+        AudiobookViewModel(appContext, repository)
     }
     val videoScope = rememberCoroutineScope()
     val videoPageFetcher = remember(appContext) {
@@ -151,23 +153,11 @@ fun LovelyReaderApp(
             downloadEnqueuer = DramaDownloadEnqueuer(videoCoordinator::download)
         )
     }
-    // The aggregation endpoint is intentionally not guessed or replaced with
-    // local/fake data. Until a signed server feed is configured, the ranking
-    // surface reports a truthful unavailable state and remains independently
-    // isolated from the drama source and audiobook state.
-    val rankingRepository = remember(appContext) {
-        object : RankingRepository {
-            override suspend fun load(request: RankingRequest, forceRefresh: Boolean): RankingLoadResult =
-                RankingLoadResult(
-                    snapshot = null,
-                    source = RankingDataSource.EMPTY,
-                    error = RankingError(
-                        kind = RankingFailureKind.SERVICE_UNAVAILABLE,
-                        message = "排行榜服务暂未配置",
-                        retryable = true
-                    )
-                )
-        }
+    // The bundled catalog is a signed-in-app snapshot generated from public
+    // TVmaze/IMDb metadata. It is a real release source, not a debug fixture;
+    // the repository boundary remains compatible with a future hosted feed.
+    val rankingRepository: RankingRepository = remember(appContext) {
+        BundledRankingRepository(appContext)
     }
     val rankingViewModel: RankingViewModel = viewModel {
         RankingViewModel(rankingRepository)
@@ -204,6 +194,18 @@ fun LovelyReaderApp(
             }.onFailure { backupMessage = "备份恢复失败：${it.message.orEmpty()}" }
         }
     }
+    val importAudiobookLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            appContext.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        audiobookViewModel.importTxt(uri)
+    }
     var experience by rememberSaveable { mutableStateOf(AppExperience.Reader) }
     var showVisualFixture by rememberSaveable { mutableStateOf(false) }
 
@@ -231,7 +233,8 @@ fun LovelyReaderApp(
     val searchHistory by viewModel.searchHistory.collectAsState()
     val searchSeed by viewModel.searchSeed.collectAsState()
 
-    LaunchedEffect(appUpdater) {
+    LaunchedEffect(appUpdater, isDebugBuild) {
+        if (isDebugBuild) return@LaunchedEffect
         when (val result = appUpdater.checkAutomatically()) {
             is UpdateCheckResult.Available -> {
                 updateAvailable = result.manifest
@@ -275,6 +278,7 @@ fun LovelyReaderApp(
             onShelf = { viewModel.openShelf() },
             onSearch = { viewModel.openSearch() },
             onReader = { viewModel.openReader() },
+            onAudio = { viewModel.openAudioBooks() },
             onNotes = { viewModel.openNotes() }
         )
     }
@@ -472,6 +476,17 @@ fun LovelyReaderApp(
             onSettings = { viewModel.openNotes() },
             experienceSwitch = renderExperienceSwitch,
             bottomBar = { mainBottomBar(MainTab.Shelf) }
+        )
+
+        Screen.AudioBooks -> AudiobookScreen(
+            viewModel = audiobookViewModel,
+            onBack = { viewModel.openShelf() },
+            onImportTxt = {
+                importAudiobookLauncher.launch(arrayOf("text/plain", "application/octet-stream"))
+            },
+            downloadedNovelBooks = shelfBooks.filter { viewModel.isBookReady(it.id) },
+            onImportDownloadedBook = audiobookViewModel::importDownloadedNovel,
+            bottomBar = { mainBottomBar(MainTab.Audio) }
         )
 
         Screen.Search -> Unit

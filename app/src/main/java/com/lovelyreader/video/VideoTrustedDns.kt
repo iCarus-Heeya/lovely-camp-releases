@@ -420,10 +420,13 @@ internal class AndroidTrustedVideoDnsFallback(context: Context) : TrustedVideoDn
 
     private companion object {
         const val SYSTEM_PREFLIGHT_CONNECT_TIMEOUT_MILLIS = 1_500
-        const val SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS = 4_000
-        const val SYSTEM_TARGET_READ_TIMEOUT_MILLIS = 30_000
-        const val TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS = 20_000
-        const val TRUSTED_TARGET_READ_TIMEOUT_MILLIS = 75_000
+        // Catalogue pages are interactive requests, not media streams. Keep
+        // a bad route from occupying the search pipeline for minutes while
+        // the UI is waiting for a retryable result.
+        const val SYSTEM_TARGET_CONNECT_TIMEOUT_MILLIS = 8_000
+        const val SYSTEM_TARGET_READ_TIMEOUT_MILLIS = 20_000
+        const val TRUSTED_TARGET_CONNECT_TIMEOUT_MILLIS = 8_000
+        const val TRUSTED_TARGET_READ_TIMEOUT_MILLIS = 20_000
     }
 
     private suspend fun resolveWithAliDns(host: String): List<InetAddress> {

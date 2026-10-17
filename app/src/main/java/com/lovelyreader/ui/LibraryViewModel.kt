@@ -244,6 +244,11 @@ internal class LibraryViewModel(
         _screen.value = Screen.Reader(bookId)
     }
 
+    fun openAudioBooks() {
+        recordReaderExitProgress()
+        _screen.value = Screen.AudioBooks
+    }
+
     fun openNotes() {
         recordReaderExitProgress()
         _screen.value = Screen.Settings

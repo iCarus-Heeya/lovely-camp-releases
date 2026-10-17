@@ -21,11 +21,15 @@ import com.lovelyreader.video.isTransientVideoNetworkFailure
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.URI
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /** Injectable boundary around [VideoSiteResolver] so the screen never depends on fetching details. */
 fun interface DramaRootResolver {
@@ -51,6 +55,8 @@ interface DramaLibrary {
 /** Like runCatching, but never converts coroutine cancellation into a user-facing error. */
 private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T> = try {
     Result.success(block())
+} catch (error: TimeoutCancellationException) {
+    Result.failure(error)
 } catch (error: CancellationException) {
     throw error
 } catch (error: Throwable) {
@@ -58,6 +64,7 @@ private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T
 }
 
 internal fun classifyDramaRequestError(error: Throwable): DramaRequestError = when {
+    error is TimeoutCancellationException -> DramaRequestError.Network
     generateSequence(error) { it.cause }.any { it is javax.net.ssl.SSLException } ->
         DramaRequestError.TargetTls
     isTransientVideoNetworkFailure(error) -> DramaRequestError.Network
@@ -139,7 +146,8 @@ class DramaViewModel(
     private val siteAdapter: VideoSiteAdapter?,
     private val library: DramaLibrary,
     private val downloadEnqueuer: DramaDownloadEnqueuer?,
-    private val coroutineScope: CoroutineScope? = null
+    private val coroutineScope: CoroutineScope? = null,
+    private val searchTimeoutMillis: Long = DRAMA_SEARCH_TIMEOUT_MILLIS
 ) : ViewModel() {
     private val _rootStatus = MutableStateFlow(DramaRootUiState())
     val rootStatus: StateFlow<DramaRootUiState> = _rootStatus.asStateFlow()
@@ -177,6 +185,7 @@ class DramaViewModel(
     private var episodesRequest = 0
     private var playbackRequest = 0
     private var searchJob: Job? = null
+    private val searchGate = Mutex()
     private var pendingResumeRequest = false
     private var pendingSearchQuery: String? = null
     private var pendingTitle: VideoTitle? = null
@@ -248,7 +257,11 @@ class DramaViewModel(
         }
         _searchResults.value = DramaSearchUiState(isLoading = true, message = dramaStatusCopy(DramaStatus.Searching))
         searchJob = scope.launch {
-            val result = runCatchingCancellable { adapter.search(root, query.trim()) }
+            val result = runCatchingCancellable {
+                withTimeout(searchTimeoutMillis.coerceAtLeast(1L)) {
+                    searchGate.withLock { adapter.search(root, query.trim()) }
+                }
+            }
             if (request == searchRequest) {
                 _searchResults.value = result.fold(
                     onSuccess = { results ->
@@ -648,3 +661,5 @@ class DramaViewModel(
         VideoRootResolutionStatus.UNAVAILABLE -> DramaRootUiState(message = detail)
     }
 }
+
+private const val DRAMA_SEARCH_TIMEOUT_MILLIS = 30_000L

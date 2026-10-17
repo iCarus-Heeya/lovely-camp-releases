@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -951,8 +952,16 @@ fun ReaderScreen(
         topBar = {},
         bottomBar = {},
         containerColor = readerChrome
-    ) { _ ->
-        InkWashBackground(Modifier.fillMaxSize()) {
+    ) { contentPadding ->
+        InkWashBackground(
+            Modifier
+                .fillMaxSize()
+                // The reader draws its own chrome insets so that paginated
+                // text stays below the overlaid toolbar and bottom menu.
+                // Consume Scaffold's padding to keep that deliberate layout
+                // from triggering the unused-content-padding lint check.
+                .consumeWindowInsets(contentPadding)
+        ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()

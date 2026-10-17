@@ -6,9 +6,12 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import com.lovelyreader.download.DownloadConnection
+import com.lovelyreader.download.DownloadContentRange
 import com.lovelyreader.download.DownloadTransferProgress
 import com.lovelyreader.download.ResumableFileDownloader
+import com.lovelyreader.download.parseContentRange
 import com.lovelyreader.network.NetworkRetryPolicy
 import com.lovelyreader.network.isTransientNetworkFailure
 import com.lovelyreader.network.retryNetwork
@@ -103,7 +106,7 @@ class AndroidAppUpdater(private val context: Context) {
         runCatching {
             val raw = getTextWithRetry(GitHubReleaseConfiguration.LATEST_RELEASE_URL)
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            when (val availability = parseGitHubLatestRelease(raw, packageInfo.longVersionCode)) {
+            when (val availability = parseGitHubLatestRelease(raw, PackageInfoCompat.getLongVersionCode(packageInfo))) {
                 UpdateAvailability.UpToDate -> UpdateCheckResult.UpToDate
                 is UpdateAvailability.Invalid -> UpdateCheckResult.Failed(availability.reason)
                 is UpdateAvailability.Available -> UpdateCheckResult.Available(parseGitHubReleaseManifest(raw))
@@ -269,6 +272,11 @@ class AndroidAppUpdater(private val context: Context) {
                 in 200..299 -> return object : DownloadConnection {
                     override val responseCode: Int = connection.responseCode
                     override val contentLength: Long? = connection.contentLengthLong.takeIf { it >= 0L }
+                    private val parsedContentRange: DownloadContentRange?
+                        get() = parseContentRange(connection.getHeaderField("Content-Range"))
+                    override val contentRangeStart: Long? get() = parsedContentRange?.start
+                    override val contentRangeEnd: Long? get() = parsedContentRange?.end
+                    override val contentRangeTotal: Long? get() = parsedContentRange?.total
                     override val input = connection.inputStream
                     override fun close() = connection.disconnect()
                 }

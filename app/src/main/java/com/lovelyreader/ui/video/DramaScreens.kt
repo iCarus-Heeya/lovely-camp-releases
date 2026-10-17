@@ -16,6 +16,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.mediarouter.app.MediaRouteButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -308,6 +309,8 @@ internal fun shouldHandleDramaHomeSystemBack(page: DramaPage): Boolean = page ==
 internal fun dramaHomeBackDestination(page: DramaPage, rankingSearchOrigin: Boolean): DramaPage? =
     if (page == DramaPage.Home && rankingSearchOrigin) DramaPage.Rankings else null
 
+internal fun dramaRankingSubtitle(): String = "公开评分排行"
+
 @Composable
 fun DramaHomeScreen(
     rootStatus: DramaRootUiState,
@@ -455,7 +458,7 @@ internal fun DramaHomeStyledScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text("排行榜", color = colors.cocoa, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        Text("等待排行榜数据服务接入", color = colors.softGray, fontSize = 12.sp)
+                        Text(dramaRankingSubtitle(), color = colors.softGray, fontSize = 12.sp)
                     }
                     Text("›", color = colors.roseDust, fontSize = 22.sp)
                 }
@@ -552,7 +555,7 @@ private fun VideoDiagnosticsDialog(
     val packageInfo = remember(context.packageName) {
         context.packageManager.getPackageInfo(context.packageName, 0)
     }
-    val versionLabel = videoDebugVersionLabel(packageInfo.versionName ?: "未知", packageInfo.longVersionCode)
+    val versionLabel = videoDebugVersionLabel(packageInfo.versionName ?: "未知", PackageInfoCompat.getLongVersionCode(packageInfo))
     val copiedText = diagnostics.joinToString("\n") { it.displayText }
         .ifBlank { "尚未记录片源请求。请先搜索一次后再打开此处。" }
     AlertDialog(

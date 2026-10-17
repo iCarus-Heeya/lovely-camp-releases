@@ -42,7 +42,7 @@ interface RankingRepository {
     suspend fun loadCapabilities(): Result<RankingCapabilities> = Result.success(RankingCapabilities())
 }
 
-enum class RankingDataSource { NETWORK, CACHE_FRESH, CACHE_STALE, EMPTY }
+enum class RankingDataSource { NETWORK, BUNDLED, CACHE_FRESH, CACHE_STALE, EMPTY }
 
 enum class RankingFailureKind {
     INVALID_REQUEST,

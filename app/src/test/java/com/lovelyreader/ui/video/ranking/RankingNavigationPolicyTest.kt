@@ -4,6 +4,7 @@ import com.lovelyreader.ui.MainTab
 import com.lovelyreader.ui.video.DramaPage
 import com.lovelyreader.ui.video.dramaBackDestination
 import com.lovelyreader.ui.video.dramaHomeBackDestination
+import com.lovelyreader.ui.video.dramaRankingSubtitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,6 +34,11 @@ class RankingNavigationPolicyTest {
     fun `ranking does not add a global bottom bar item`() {
         assertFalse(MainTab.values().any { it.label == "排行榜" })
         assertTrue(MainTab.values().all { it.label != "追剧" })
+    }
+
+    @Test
+    fun `ranking home subtitle states the actual public score scope`() {
+        assertEquals("公开评分排行", dramaRankingSubtitle())
     }
 
     @Test
