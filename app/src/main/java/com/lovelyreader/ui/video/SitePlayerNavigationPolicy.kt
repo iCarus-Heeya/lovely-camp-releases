@@ -26,15 +26,22 @@ internal fun visibleProviderPlayerUrl(candidate: String?, episodePageUrl: String
     val player = runCatching { URI(value) }.getOrNull() ?: return null
     val episode = runCatching { URI(episodePageUrl) }.getOrNull() ?: return null
     val isSameOrigin = player.scheme.equals(episode.scheme, true) &&
-        player.host.equals(episode.host, true) && player.port == episode.port
+        canonicalCatalogueHost(player.host) == canonicalCatalogueHost(episode.host) &&
+        player.port == episode.port
     return value.takeUnless { isSameOrigin }
 }
+
+/** The catalogue serves the same player from both `www` and `m` hosts. */
+private fun canonicalCatalogueHost(host: String?): String = host.orEmpty()
+    .lowercase()
+    .removePrefix("www.")
+    .removePrefix("m.")
 
 internal fun isSitePlayerEntryPage(currentUrl: String, episodePageUrl: String): Boolean {
     val current = runCatching { URI(currentUrl) }.getOrNull() ?: return false
     val episode = runCatching { URI(episodePageUrl) }.getOrNull() ?: return false
     return current.scheme.equals(episode.scheme, true) &&
-        current.host.equals(episode.host, true) &&
+        canonicalCatalogueHost(current.host) == canonicalCatalogueHost(episode.host) &&
         current.port == episode.port && current.path == episode.path
 }
 
@@ -73,7 +80,21 @@ internal fun isProviderResourceRequest(
         resource.port == provider.port
 }
 
-/** The provider frame relies on the site page's browsing context and referrer. */
+/**
+ * Only the provider iframe navigation is a fatal WebView error. Optional
+ * provider assets (posters, analytics, ads, and media segments) may fail on a
+ * mobile network while the embedded player remains usable.
+ */
+internal fun isFatalSitePlayerRequest(
+    candidate: String,
+    episodePageUrl: String
+): Boolean = isProviderFrameRequest(candidate, episodePageUrl)
+
+/**
+ * Keep the provider inside the catalogue page's iframe.  Direct top-level
+ * navigation drops the opaque provider query/referer and is rejected by
+ * several gateways with a 403 response, so it is not a valid fallback.
+ */
 internal fun shouldNavigateToProviderFrame(): Boolean = false
 
 internal fun isProviderAnnouncementOverlay(visibleText: String): Boolean =

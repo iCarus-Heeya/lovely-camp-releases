@@ -16,8 +16,40 @@ class RankingContractTest {
         val snapshot = result.getOrThrow()
         assertEquals("snap-1", snapshot.snapshotId)
         assertEquals("next", snapshot.nextCursor)
+        assertEquals(null, snapshot.totalCount)
         assertEquals(8.5, snapshot.items.single().aggregateScore!!, 0.0)
         assertTrue(parseRankingSnapshot(fixture.replace(",\"originalTitle\":\"Example\"", "").replace(",\"summary\":\"summary\"", "").replace(",\"posterUrl\":\"https://img.example/poster.jpg\"", ""), now).isSuccess)
+    }
+
+    @Test fun `parses the score that actually controls rank order`() {
+        val snapshot = parseRankingSnapshot(
+            fixture.replace("\"aggregateScore\":8.5", "\"aggregateScore\":8.5,\"rankingScore\":28.3"),
+            now
+        ).getOrThrow()
+        assertEquals(28.3, snapshot.items.single().rankingScore!!, 0.0)
+    }
+
+    @Test fun `parses optional full catalogue count`() {
+        val snapshot = parseRankingSnapshot(
+            fixture.replace("\"nextCursor\":\"next\"", "\"nextCursor\":\"next\",\"totalCount\":63681"),
+            now
+        ).getOrThrow()
+        assertEquals(63681, snapshot.totalCount)
+    }
+
+    @Test fun `parses optional metadata coverage without making older snapshots invalid`() {
+        val snapshot = parseRankingSnapshot(
+            fixture.replace(
+                "\"items\":[",
+                "\"metadataCoverage\":{\"total\":200509,\"chineseTitle\":72049,\"summary\":10805,\"poster\":12352,\"region\":129197,\"rating\":200508},\"items\":["
+            ),
+            now
+        ).getOrThrow()
+        assertEquals(
+            RankingMetadataCoverage(200509, 72049, 10805, 12352, 129197, 200508),
+            snapshot.metadataCoverage
+        )
+        assertEquals(null, parseRankingSnapshot(fixture, now).getOrThrow().metadataCoverage)
     }
 
     @Test fun `parses versioned capabilities and exposes only declared filters`() {
@@ -69,6 +101,33 @@ class RankingContractTest {
             assertEquals(null, snapshot.items.single().posterUrl)
             assertEquals("示例片", snapshot.items.single().displayTitle)
         }
+    }
+
+    @Test fun `approved metadata poster hosts remain available for release cards`() {
+        val snapshot = parseRankingSnapshot(
+            fixture.replace("https://img.example/poster.jpg", "https://static.tvmaze.com/uploads/images/medium_portrait/1/2.jpg"),
+            now
+        ).getOrThrow()
+        assertEquals("https://static.tvmaze.com/uploads/images/medium_portrait/1/2.jpg", snapshot.items.single().posterUrl)
+
+        val wikimedia = parseRankingSnapshot(
+            fixture.replace("https://img.example/poster.jpg", "https://commons.wikimedia.org/wiki/Special:FilePath/poster.jpg"),
+            now
+        ).getOrThrow()
+        assertEquals("https://commons.wikimedia.org/wiki/Special:FilePath/poster.jpg", wikimedia.items.single().posterUrl)
+
+        val thumbnail = parseRankingSnapshot(
+            fixture.replace("https://img.example/poster.jpg", "https://thumb.wikimedia.org/wikipedia/zh/thumb/a/ab/poster.jpg/330px-poster.jpg"),
+            now
+        ).getOrThrow()
+        assertEquals("https://thumb.wikimedia.org/wikipedia/zh/thumb/a/ab/poster.jpg/330px-poster.jpg", thumbnail.items.single().posterUrl)
+    }
+
+    @Test fun `release poster asset paths remain available and traversal is rejected`() {
+        val asset = "asset://ranking/posters/imdb_tt0111161.img"
+        val snapshot = parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", asset), now).getOrThrow()
+        assertEquals(asset, snapshot.items.single().posterUrl)
+        assertTrue(parseRankingSnapshot(fixture.replace("https://img.example/poster.jpg", "asset://ranking/posters/../secret.img"), now).isFailure)
     }
 
     @Test fun `rejects private poster, oversized or non-string optional text`() {

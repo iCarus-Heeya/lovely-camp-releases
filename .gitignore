@@ -8,6 +8,7 @@ release-signing.properties
 *.apk
 *.apks
 *.aab
+__pycache__/
 
 # Root-level QA captures are transient; keep accepted evidence under the
 # project-local docs/ui/evidence/<date>/iterationN/ directories instead.

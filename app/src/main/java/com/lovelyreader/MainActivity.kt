@@ -17,7 +17,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.lovelyreader.ui.LovelyReaderApp
 import com.lovelyreader.ui.theme.LovelyReaderTheme
 import com.lovelyreader.ui.video.videoFullscreenBehavior
-import com.lovelyreader.video.VideoCastController
 import java.io.PrintWriter
 import java.io.StringWriter
 
@@ -26,6 +25,8 @@ class MainActivity : ComponentActivity() {
     private var splashScreen: androidx.core.splashscreen.SplashScreen? = null
     private var fullscreenView: View? = null
     private var fullscreenCallback: android.webkit.WebChromeClient.CustomViewCallback? = null
+    @Volatile
+    private var appReady = false
 
     fun enterVideoFullscreen(
         view: View,
@@ -97,7 +98,6 @@ class MainActivity : ComponentActivity() {
         splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         installCrashRecorder()
-        VideoCastController.initialize(applicationContext)
         if (crashFile.exists()) {
             showStartupCrashScreen(crashFile.readText())
             return
@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            appReady = true
         }.onFailure { error ->
             writeCrash(error)
             showStartupCrashScreen(error.stackTraceToString())
@@ -147,7 +148,7 @@ class MainActivity : ComponentActivity() {
     private fun installCrashRecorder() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            writeCrash(throwable)
+            if (shouldPersistStartupCrash(appReady)) writeCrash(throwable)
             previous?.uncaughtException(thread, throwable)
         }
     }

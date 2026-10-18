@@ -17,6 +17,7 @@ import com.lovelyreader.video.ranking.RankingSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -154,10 +155,12 @@ class RankingViewModel(
         }
         val requestGeneration = ++generation
         activeRequest = request
+        val preserveSnapshot = _state.value is RankingSnapshotUiState
         refreshJob?.cancel()
         nextPageJob?.cancel()
         _state.value = refreshPresentation(request)
         refreshJob = executionScope.launch {
+            val startedAtNanos = System.nanoTime()
             val result = try {
                 repository.load(request, forceRefresh)
             } catch (cancelled: CancellationException) {
@@ -168,6 +171,11 @@ class RankingViewModel(
                     source = RankingDataSource.EMPTY,
                     error = RankingError(RankingFailureKind.NETWORK, "Ranking request failed", retryable = true)
                 )
+            }
+            if (preserveSnapshot) {
+                val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
+                val remainingMillis = MIN_REFRESH_FEEDBACK_MILLIS - elapsedMillis
+                if (remainingMillis > 0) delay(remainingMillis)
             }
             if (requestGeneration != generation || activeRequest != request) return@launch
             _state.value = result.toInitialState(request, capabilities)
@@ -336,7 +344,7 @@ class RankingViewModel(
             year = null,
             genre = null,
             language = null,
-            limit = 20
+            limit = 50
         )
     }
 
@@ -369,6 +377,8 @@ class RankingViewModel(
         }
     }
 }
+
+private const val MIN_REFRESH_FEEDBACK_MILLIS = 220L
 
 private fun RankingLoadResult.toInitialState(
     request: RankingRequest,

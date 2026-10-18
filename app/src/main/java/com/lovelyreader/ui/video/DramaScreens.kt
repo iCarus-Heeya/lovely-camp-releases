@@ -16,6 +16,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.mediarouter.app.MediaRouteButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -272,6 +273,8 @@ fun DramaScreen(
             playback = playback,
             episodes = episodes,
             onPlayEpisode = viewModel::openEpisode,
+            hasAlternativeSource = viewModel.hasAlternativePlaybackSource(),
+            onSwitchSource = viewModel::tryNextPlaybackSource,
             onBack = {
                 viewModel.closePlayback()
                 page = DramaPage.Detail
@@ -307,6 +310,8 @@ internal fun shouldHandleDramaHomeSystemBack(page: DramaPage): Boolean = page ==
 
 internal fun dramaHomeBackDestination(page: DramaPage, rankingSearchOrigin: Boolean): DramaPage? =
     if (page == DramaPage.Home && rankingSearchOrigin) DramaPage.Rankings else null
+
+internal fun dramaRankingSubtitle(): String = "公开评分排行"
 
 @Composable
 fun DramaHomeScreen(
@@ -455,7 +460,7 @@ internal fun DramaHomeStyledScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text("排行榜", color = colors.cocoa, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        Text("等待排行榜数据服务接入", color = colors.softGray, fontSize = 12.sp)
+                        Text(dramaRankingSubtitle(), color = colors.softGray, fontSize = 12.sp)
                     }
                     Text("›", color = colors.roseDust, fontSize = 22.sp)
                 }
@@ -552,7 +557,7 @@ private fun VideoDiagnosticsDialog(
     val packageInfo = remember(context.packageName) {
         context.packageManager.getPackageInfo(context.packageName, 0)
     }
-    val versionLabel = videoDebugVersionLabel(packageInfo.versionName ?: "未知", packageInfo.longVersionCode)
+    val versionLabel = videoDebugVersionLabel(packageInfo.versionName ?: "未知", PackageInfoCompat.getLongVersionCode(packageInfo))
     val copiedText = diagnostics.joinToString("\n") { it.displayText }
         .ifBlank { "尚未记录片源请求。请先搜索一次后再打开此处。" }
     AlertDialog(
@@ -1036,6 +1041,8 @@ fun DramaPlayerScreen(
     playback: DramaPlaybackUiState,
     episodes: List<VideoEpisode>,
     onPlayEpisode: (VideoEpisode) -> Unit,
+    hasAlternativeSource: Boolean = false,
+    onSwitchSource: () -> Boolean = { false },
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     previewPosterUrl: String? = null
@@ -1178,6 +1185,8 @@ fun DramaPlayerScreen(
                     episodeUrl = playbackUrl,
                     onMediaDiscovered = { candidate -> discoveredMedia = candidate },
                     onBack = onBack,
+                    hasAlternativeSource = hasAlternativeSource,
+                    onSwitchSource = onSwitchSource,
                     modifier = Modifier.fillMaxSize()
                 )
                 player != null -> NativePlayerSurface(
@@ -1188,6 +1197,9 @@ fun DramaPlayerScreen(
                 else -> Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("本集暂时无法在应用内播放", style = MaterialTheme.typography.titleMedium, color = Color.White)
                     Text(playback.message.ifBlank { "该播放源没有提供公开可播放的媒体地址。请返回选集后尝试其他播放源。" }, style = MaterialTheme.typography.bodyMedium, color = Color.LightGray)
+                    if (hasAlternativeSource) {
+                        Button(onClick = { onSwitchSource() }) { Text("切换片源") }
+                    }
                 }
             }
         }
@@ -1514,6 +1526,8 @@ private fun SitePlayerWebView(
     episodeUrl: String,
     onMediaDiscovered: (com.lovelyreader.video.VideoMediaLink) -> Unit,
     onBack: () -> Unit,
+    hasAlternativeSource: Boolean = false,
+    onSwitchSource: () -> Boolean = { false },
     modifier: Modifier = Modifier
 ) {
     var retryKey by remember(episodeUrl) { mutableStateOf(0) }
@@ -1555,8 +1569,6 @@ private fun SitePlayerWebView(
                         onPlayerFrameFound = { playerUrl ->
                             post {
                                 confirmedPlayerUrl = playerUrl
-                                playerReady = shouldRevealConfirmedProviderFrame(playerUrl, episodeUrl)
-                                if (shouldNavigateToProviderFrame()) loadUrl(playerUrl)
                             }
                         },
                         onPlayerContainerFound = {
@@ -1567,15 +1579,11 @@ private fun SitePlayerWebView(
                 )
                 webChromeClient = SitePlayerWebChromeClient(viewContext, episodeUrl) { playerUrl ->
                     confirmedPlayerUrl = playerUrl
-                    playerReady = shouldRevealConfirmedProviderFrame(playerUrl, episodeUrl)
-                    if (shouldNavigateToProviderFrame()) loadUrl(playerUrl)
                 }
                 webViewClient = SitePlayerWebViewClient(
                     episodeUrl = episodeUrl,
                     onPlayerFrameFound = { playerUrl ->
                         confirmedPlayerUrl = playerUrl
-                        playerReady = shouldRevealConfirmedProviderFrame(playerUrl, episodeUrl)
-                        if (shouldNavigateToProviderFrame()) loadUrl(playerUrl)
                     },
                     onPlayerReady = { playerReady = true },
                     onEntryPageFinished = { entryPageFinished = true },
@@ -1605,6 +1613,7 @@ private fun SitePlayerWebView(
             Text("当前片源的播放器资源没有完成连接。请重试当前片源，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { retryKey++ }) { Text("重新连接") }
+                if (hasAlternativeSource) Button(onClick = { onSwitchSource() }) { Text("切换片源") }
                 OutlinedButton(onClick = onBack) { Text("返回选集") }
             }
         }
@@ -1615,6 +1624,7 @@ private fun SitePlayerWebView(
             Text("片源页面超过 15 秒仍未响应。可以重新连接，或返回选集切换播放源。", style = MaterialTheme.typography.bodyMedium, color = appColors().softGray)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { retryKey++ }) { Text("重新连接") }
+                if (hasAlternativeSource) Button(onClick = { onSwitchSource() }) { Text("切换片源") }
                 OutlinedButton(onClick = onBack) { Text("返回选集") }
             }
         }
@@ -1643,6 +1653,7 @@ private class SitePlayerWebViewClient(
         // player page as a confirmed frame so the app does not leave the
         // player permanently transparent.
         visibleProviderPlayerUrl(url, episodeUrl)?.let { playerUrl ->
+            Log.i("LovelyPlayer", "provider frame finished url=${redactPlayerDiagnosticUrl(playerUrl)}")
             onPlayerFrameFound(playerUrl)
             onPlayerReady()
             return
@@ -1672,6 +1683,7 @@ private class SitePlayerWebViewClient(
             onMediaDiscovered(media)
         }
         if (isProviderFrameRequest(url, episodeUrl)) {
+            Log.i("LovelyPlayer", "provider frame request url=${redactPlayerDiagnosticUrl(url)}")
             onPlayerFrameFound(url)
             isolateProviderPlayer(view)
             view.postDelayed({ isolateProviderPlayer(view) }, 500)
@@ -1691,9 +1703,18 @@ private class SitePlayerWebViewClient(
     ) {
         super.onReceivedError(view, request, error)
         val resourceUrl = request.url.toString()
-        if (isProviderFrameRequest(resourceUrl, episodeUrl) ||
-            isProviderResourceRequest(resourceUrl, episodeUrl, confirmedPlayerUrl())
-        ) onProviderFrameFailed()
+        Log.w(
+            "LovelyPlayer",
+            "web resource error main=${request.isForMainFrame} code=${error.errorCode} " +
+                "description=${error.description} url=${redactPlayerDiagnosticUrl(resourceUrl)}"
+        )
+        // A failed optional asset must not hide a provider frame that can
+        // still render.  Only the iframe navigation (the opaque `url` request)
+        // is a fatal WebView error; later asset failures are handled by the
+        // provider controls or the bounded loading timeout.
+        if (isFatalSitePlayerRequest(resourceUrl, episodeUrl)) {
+            onProviderFrameFailed()
+        }
         if (request.isForMainFrame) onMainFrameFailed()
     }
 
@@ -1704,9 +1725,13 @@ private class SitePlayerWebViewClient(
     ) {
         super.onReceivedHttpError(view, request, errorResponse)
         val resourceUrl = request.url.toString()
+        Log.w(
+            "LovelyPlayer",
+            "web http error main=${request.isForMainFrame} status=${errorResponse.statusCode} " +
+                "url=${redactPlayerDiagnosticUrl(resourceUrl)}"
+        )
         if (errorResponse.statusCode >= 400 &&
-            (isProviderFrameRequest(resourceUrl, episodeUrl) ||
-                isProviderResourceRequest(resourceUrl, episodeUrl, confirmedPlayerUrl()))
+            isFatalSitePlayerRequest(resourceUrl, episodeUrl)
         ) {
             onProviderFrameFailed()
         }
@@ -1716,7 +1741,7 @@ private class SitePlayerWebViewClient(
     private fun probeProviderFrame(view: WebView) {
         isolateProviderPlayer(view)
         view.evaluateJavascript(
-            """(function(){var p=document.querySelector('.MacPlayer');var f=p?p.querySelector('iframe[src]'):document.querySelector('iframe[src]');var u=f?f.src:'';if(p&&window.LovelyPlayerBridge){window.LovelyPlayerBridge.onPlayerContainer();}if(u&&window.LovelyPlayerBridge){window.LovelyPlayerBridge.onFrame(u);}return u;})()"""
+            """(function(){var p=document.querySelector('.MacPlayer');var f=p?p.querySelector('iframe[src]'):document.querySelector('iframe[src]');var u=f?f.src:'';var inlineMedia=p&&p.querySelector('video,audio,canvas,object,embed');if(p&&inlineMedia&&window.LovelyPlayerBridge){window.LovelyPlayerBridge.onPlayerContainer();}if(u&&window.LovelyPlayerBridge){window.LovelyPlayerBridge.onFrame(u);}return u;})()"""
         ) { rawUrl ->
             val candidate = rawUrl?.trim()?.removePrefix("\"")?.removeSuffix("\"")?.takeIf(String::isNotBlank)
             val playerUrl = visibleProviderPlayerUrl(candidate, episodeUrl) ?: return@evaluateJavascript
@@ -1774,6 +1799,11 @@ private class SitePlayerWebViewClient(
         )
     }
 }
+
+private fun redactPlayerDiagnosticUrl(value: String): String = runCatching {
+    val uri = android.net.Uri.parse(value)
+    uri.buildUpon().clearQuery().fragment(null).build().toString()
+}.getOrDefault(value.substringBefore('?').substringBefore('#'))
 
 private class SitePlayerFrameBridge(
     private val episodeUrl: String,

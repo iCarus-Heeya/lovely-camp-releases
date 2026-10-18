@@ -43,6 +43,23 @@ class SitePlayerNavigationPolicyTest {
     }
 
     @Test
+    fun `treats mobile and www catalogue hosts as the same site`() {
+        assertNull(
+            visibleProviderPlayerUrl(
+                "https://m.88ystv.com/vod-play-id-1.html",
+                "https://www.88ystv.com/vod-play-id-1.html"
+            )
+        )
+        assertEquals(
+            "https://vip.example/player?episode=1",
+            visibleProviderPlayerUrl(
+                "https://vip.example/player?episode=1",
+                "https://m.88ystv.com/vod-play-id-1.html"
+            )
+        )
+    }
+
+    @Test
     fun `only the episode entry page may look for the provider frame`() {
         val episode = "https://www.88ystv.com/vod-play-id-1.html"
 
@@ -115,7 +132,17 @@ class SitePlayerNavigationPolicyTest {
     }
 
     @Test
-    fun `keeps provider playback inside the site page to preserve its authorization context`() {
+    fun `does not treat optional provider resources as fatal player failures`() {
+        val episode = "https://www.88ystv.com/vod-play-id-275962-src-1-num-1.html"
+        val provider = "https://zj.jsjinfu.com:8443?url=opaque"
+
+        assertTrue(isFatalSitePlayerRequest(provider, episode))
+        assertFalse(isFatalSitePlayerRequest("https://zj.jsjinfu.com:8443/player.js", episode))
+        assertFalse(isFatalSitePlayerRequest("https://zj.jsjinfu.com:8443/media/segment.ts", episode))
+    }
+
+    @Test
+    fun `keeps the confirmed provider frame inside the catalogue page`() {
         assertFalse(shouldNavigateToProviderFrame())
     }
 

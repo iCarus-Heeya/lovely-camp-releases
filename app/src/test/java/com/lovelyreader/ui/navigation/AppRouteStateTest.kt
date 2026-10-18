@@ -11,6 +11,7 @@ class AppRouteStateTest {
         val result = SearchResult("qinkan", "书", "作者", "https://example.com/book")
         assertEquals(Screen.Search, nextReaderRoute(Screen.Detail(result)))
         assertEquals(Screen.Shelf, nextReaderRoute(Screen.Search))
+        assertEquals(Screen.Shelf, nextReaderRoute(Screen.AudioBooks))
         assertEquals(Screen.Shelf, nextReaderRoute(Screen.Reader("b1")))
     }
 }

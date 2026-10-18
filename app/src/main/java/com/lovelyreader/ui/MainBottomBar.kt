@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +38,7 @@ enum class MainTab(val label: String, val icon: androidx.compose.ui.graphics.vec
     Shelf("书架", Icons.Outlined.Book),
     Search("找书", Icons.Outlined.Search),
     Reader("阅读", Icons.Outlined.AutoStories),
+    Audio("听书", Icons.Outlined.Headphones),
     Notes("小纸条", Icons.Outlined.EditNote)
 }
 
@@ -65,10 +67,11 @@ fun MainBottomBar(
     onShelf: () -> Unit,
     onSearch: () -> Unit,
     onReader: () -> Unit,
+    onAudio: () -> Unit = {},
     onNotes: () -> Unit
 ) {
-    val tabs = listOf(MainTab.Shelf, MainTab.Search, MainTab.Reader, MainTab.Notes)
-    val actions = listOf(onShelf, onSearch, onReader, onNotes)
+    val tabs = listOf(MainTab.Shelf, MainTab.Search, MainTab.Reader, MainTab.Audio, MainTab.Notes)
+    val actions = listOf(onShelf, onSearch, onReader, onAudio, onNotes)
     val navigationLineColor = appColors().lineColor.copy(alpha = .65f)
     val navigationSurfaceColor = appColors().cream.copy(alpha = .96f)
 

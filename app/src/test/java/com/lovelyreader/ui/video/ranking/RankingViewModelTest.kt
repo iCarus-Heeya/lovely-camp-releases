@@ -76,7 +76,7 @@ class RankingViewModelTest {
                         mediaType = RankingMediaType.SERIES,
                         items = listOf(entry("declared")),
                     ).copy(
-                        filters = RankingFilters("month", RankingMediaType.SERIES, null, null, null, null, 20, null)
+                        filters = RankingFilters("month", RankingMediaType.SERIES, null, null, null, null, 50, null)
                     ),
                     RankingDataSource.NETWORK
                 )
@@ -89,7 +89,7 @@ class RankingViewModelTest {
 
         assertEquals(1, repository.requests.size)
         assertEquals(
-            RankingRequest("popular", "month", RankingMediaType.SERIES, null, null, null, null, 20, null),
+            RankingRequest("popular", "month", RankingMediaType.SERIES, null, null, null, null, 50, null),
             repository.requests.single()
         )
         assertTrue(viewModel.state.value is RankingUiState.Content)

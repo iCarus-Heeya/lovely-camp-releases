@@ -55,8 +55,11 @@ internal fun inspectVideoHttpResponse(responseCode: Int, body: String) {
 class AndroidVideoPageFetcher(
     private val client: HttpTextClient = HttpTextClient(
         minimumIntervalMillis = 500,
-        connectTimeoutMillis = 20_000,
-        readTimeoutMillis = 75_000,
+        // Search is an interactive action. A failed route must reach the
+        // retryable UI quickly instead of holding a coroutine/connection for
+        // more than a minute while poster work is also starting.
+        connectTimeoutMillis = 8_000,
+        readTimeoutMillis = 20_000,
         responseInspector = ::inspectVideoHttpResponse
     ),
     private val requestDiagnostics: VideoRequestDiagnostics = VideoRequestDiagnostics(),

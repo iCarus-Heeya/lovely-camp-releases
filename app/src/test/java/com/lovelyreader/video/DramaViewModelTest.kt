@@ -6,15 +6,56 @@ import com.lovelyreader.ui.video.DramaRequestError
 import com.lovelyreader.ui.video.DramaRootResolver
 import com.lovelyreader.ui.video.DramaViewModel
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
 class DramaViewModelTest {
+    @Test
+    fun `player failure can switch to the next source and reopen the same episode`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val siteSource = VideoSource("site", title.id, "站内播放")
+        val directSource = VideoSource("direct", title.id, "红牛资源")
+        val siteEpisode = VideoEpisode("site-episode", siteSource.id, "第1集", "https://video.example/site/1", 0, title.id)
+        val directEpisode = VideoEpisode("direct-episode", directSource.id, "第1集", "https://video.example/direct/1", 0, title.id)
+        val directMedia = VideoMediaLink("https://media.example/direct/1.mp4")
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = FakeAdapter(
+                detail = VideoTitleDetail(title, listOf(siteSource, directSource)),
+                episodes = mapOf(siteSource.id to listOf(siteEpisode), directSource.id to listOf(directEpisode)),
+                media = mapOf(
+                    siteEpisode.id to VideoMediaLink(siteEpisode.url, playbackMode = VideoPlaybackMode.SITE_PLAYER),
+                    directEpisode.id to directMedia
+                )
+            ),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+        viewModel.openEpisode(siteEpisode)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.hasAlternativePlaybackSource())
+        assertTrue(viewModel.tryNextPlaybackSource())
+        advanceUntilIdle()
+
+        assertEquals(directSource, viewModel.selectedSource.value)
+        assertEquals(directEpisode, viewModel.playback.value.episode)
+        assertEquals(directMedia, viewModel.playback.value.media)
+        assertFalse(viewModel.hasAlternativePlaybackSource())
+    }
+
     @Test
     fun `resume matches saved source and episode after a provider host changes`() = runTest {
         val currentTitle = VideoTitle("https://new-provider.example/drama", "Drama", "https://new-provider.example/drama")
@@ -68,6 +109,30 @@ class DramaViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(title), viewModel.searchResults.value.results)
+    }
+
+    @Test
+    fun `search timeout becomes a retryable network error instead of hanging`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = FakeAdapter(
+                detail = VideoTitleDetail(title, emptyList()),
+                episodes = emptyMap(),
+                searchDelayMillis = 2_000
+            ),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this,
+            searchTimeoutMillis = 1_000
+        )
+
+        advanceUntilIdle()
+        viewModel.search("Drama")
+        advanceUntilIdle()
+
+        assertEquals(DramaRequestError.Network, viewModel.searchResults.value.error)
+        assertTrue(viewModel.searchResults.value.canRetry)
     }
 
     @Test
@@ -523,9 +588,11 @@ class DramaViewModelTest {
         private val media: Map<String, VideoMediaLink> = emptyMap(),
         var remainingSearchFailures: Int = 0,
         var remainingDetailFailures: Int = 0,
-        var remainingEpisodeFailures: Int = 0
+        var remainingEpisodeFailures: Int = 0,
+        private val searchDelayMillis: Long = 0L
     ) : VideoSiteAdapter {
         override suspend fun search(root: VideoSiteRoot, query: String): List<VideoTitle> {
+            if (searchDelayMillis > 0) delay(searchDelayMillis)
             if (remainingSearchFailures > 0) {
                 remainingSearchFailures--
                 throw IOException("simulated search network failure")

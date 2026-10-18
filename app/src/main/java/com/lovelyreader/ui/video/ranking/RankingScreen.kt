@@ -54,10 +54,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.icu.text.Transliterator
+import android.os.Build
 import com.lovelyreader.ui.InkWashBackground
 import com.lovelyreader.ui.SoftPanel
 import com.lovelyreader.ui.theme.appColors
-import com.lovelyreader.ui.video.DramaPoster
 import com.lovelyreader.video.ranking.RankingBoardOption
 import com.lovelyreader.video.ranking.RankingCapabilities
 import com.lovelyreader.video.ranking.RankingEntry
@@ -75,6 +76,220 @@ private fun mediaTypeLabel(mediaType: RankingMediaType): String = when (mediaTyp
     RankingMediaType.MOVIE -> "电影"
     RankingMediaType.SERIES -> "剧集"
     RankingMediaType.VARIETY -> "综艺"
+}
+
+private val rankingRegionLabels = mapOf(
+    "US" to "美国", "GB" to "英国", "JP" to "日本", "KR" to "韩国",
+    "CN" to "中国", "TH" to "泰国", "TW" to "中国台湾", "HK" to "中国香港",
+    "CA" to "加拿大", "AU" to "澳大利亚", "FR" to "法国", "DE" to "德国",
+    "IN" to "印度", "ES" to "西班牙", "IT" to "意大利", "BR" to "巴西",
+    "NZ" to "新西兰", "IE" to "爱尔兰", "MX" to "墨西哥", "ID" to "印度尼西亚"
+)
+
+/** Region/year filters are the primary discovery path for the full catalogue. */
+internal const val rankingFiltersExpandedByDefault: Boolean = true
+
+internal fun rankingRegionLabel(value: String): String = rankingRegionLabels[value] ?: value
+
+private val rankingGenreLabels = mapOf(
+    "action" to "动作", "adventure" to "冒险", "animation" to "动画", "comedy" to "喜剧",
+    "crime" to "犯罪", "documentary" to "纪录片", "drama" to "剧情", "family" to "家庭",
+    "fantasy" to "奇幻", "history" to "历史", "horror" to "恐怖", "music" to "音乐",
+    "mystery" to "悬疑", "news" to "新闻", "reality" to "真人秀", "romance" to "爱情",
+    "sci-fi" to "科幻", "science-fiction" to "科幻", "sport" to "体育", "thriller" to "惊悚",
+    "war" to "战争", "western" to "西部", "talk show" to "脱口秀", "game show" to "游戏节目",
+    "kids" to "少儿", "short" to "短片", "adult" to "成人"
+)
+
+internal fun rankingGenreLabel(value: String): String {
+    val trimmed = value.trim()
+    if (trimmed.isBlank() || trimmed.any { it in '\u3400'..'\u9fff' }) return simplifyRankingChinese(trimmed)
+    return rankingGenreLabels[trimmed.lowercase().replace('_', '-')] ?: trimmed
+}
+
+internal fun rankingSourceLabel(value: String): String = when (value.lowercase()) {
+    "tvmaze" -> "剧集评分"
+    "imdb" -> "IMDb评分"
+    else -> value
+}
+
+internal fun rankingBoardScoreLabel(boardId: String): String = when (boardId) {
+    "source-imdb" -> "IMDb评分"
+    "source-tvmaze" -> "剧集评分"
+    else -> "评分"
+}
+
+/** Converts catalog provenance text into a short, readable synopsis. */
+internal fun rankingDisplaySummary(summary: String?): String? {
+    val cleaned = summary
+        ?.trim()
+        ?.removePrefix("公开资料概览：")
+        ?.removeSuffix("；当前快照未收录剧情正文。")
+        ?.removeSuffix("当前快照未收录剧情正文。")
+        ?.trim(' ', '；', '。')
+        .orEmpty()
+    return cleaned
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.matches(Regex("《[^》]+》")) }
+}
+
+/**
+ * Use a Chinese title whenever the immutable ranking row carries one in its
+ * display field, original field, or aliases.  The source title remains in
+ * the row for search fallback and auditability, but it must not win over a
+ * verified Chinese alias in the user-facing card.
+ */
+internal fun rankingPreferredDisplayTitle(
+    displayTitle: String,
+    originalTitle: String?,
+    aliases: List<String>
+): String {
+    val candidates = buildList {
+        add(displayTitle)
+        addAll(aliases)
+        originalTitle?.let(::add)
+    }
+    val chineseCandidates = candidates.asSequence()
+        .mapIndexedNotNull { index, candidate ->
+            val chinese = rankingChineseTitlePart(candidate) ?: return@mapIndexedNotNull null
+            val simplified = simplifyRankingChinese(chinese)
+            RankingChineseCandidate(
+                index = index,
+                value = simplified,
+                cjkCount = simplified.count { it in '\u3400'..'\u9fff' },
+                traditionalCount = chinese.count { it in traditionalToSimplified }
+            )
+        }
+        .toList()
+
+    // The catalogue's display field is the reviewed primary identity.  Once
+    // it is already a simplified Han title, an alias with more Han characters
+    // must not displace it merely because the alias is Japanese (for example
+    // ``照明店の客人たち``).  Traditional display fields still yield to a
+    // verified simplified alias below.
+    chineseCandidates.firstOrNull { candidate ->
+        candidate.index == 0 && candidate.traditionalCount == 0
+    }?.let { return it.value }
+
+    return chineseCandidates.asSequence()
+        .sortedWith(compareBy<RankingChineseCandidate> { value ->
+            // A verified simplified alias is preferable to a traditional
+            // display field.  The original order remains the final tie-break.
+            value.traditionalCount
+        }.thenByDescending { it.cjkCount }.thenBy { it.index })
+        .firstOrNull()
+        ?.value
+        ?: displayTitle
+}
+
+private data class RankingChineseCandidate(
+    val index: Int,
+    val value: String,
+    val cjkCount: Int,
+    val traditionalCount: Int
+)
+
+/**
+ * Android does not ship OpenCC.  Keep the high-frequency title characters in
+ * one deterministic table so a traditional provider label cannot leak into
+ * the simplified-Chinese client surface.  Unknown characters are preserved;
+ * we never invent a translation for an English-only title.
+ */
+private val traditionalToSimplified: Map<Char, Char> = mapOf(
+    '萬' to '万', '與' to '与', '國' to '国', '際' to '际', '戰' to '战', '劇' to '剧',
+    '畫' to '画', '驚' to '惊', '懸' to '悬', '盜' to '盗', '黃' to '黄', '鑣' to '镖',
+    '鏢' to '镖', '們' to '们', '辦' to '办', '搶' to '抢', '綠' to '绿', '蹟' to '迹',
+    '飛' to '飞', '瘋' to '疯', '頂' to '顶', '對' to '对', '無' to '无', '間' to '间',
+    '讓' to '让', '機' to '机', '開' to '开', '臺' to '台', '灣' to '湾', '學' to '学',
+    '說' to '说', '話' to '话', '網' to '网', '關' to '关', '於' to '于', '電' to '电',
+    '視' to '视', '樂' to '乐', '園' to '园', '後' to '后', '來' to '来', '實' to '实',
+    '現' to '现', '經' to '经', '濟' to '济', '發' to '发', '問' to '问', '題' to '题',
+    '時' to '时', '記' to '记', '風' to '风', '動' to '动', '戦' to '战', '戀' to '恋',
+    '為' to '为', '這' to '这', '個' to '个', '進' to '进', '過' to '过',
+    '還' to '还', '會' to '会', '從' to '从', '號' to '号', '門' to '门', '氣' to '气',
+    '場' to '场', '長' to '长', '點' to '点', '車' to '车', '書' to '书', '醫' to '医',
+    '龍' to '龙', '傳' to '传', '統' to '统', '線' to '线', '體' to '体', '種' to '种',
+    '類' to '类', '區' to '区', '級' to '级', '產' to '产', '業' to '业', '務' to '务',
+    '帶' to '带', '應' to '应', '該' to '该', '見' to '见', '難' to '难', '聽' to '听',
+    '歡' to '欢', '團' to '团', '隊' to '队', '數' to '数', '據' to '据', '結' to '结',
+    '樣' to '样', '觀' to '观', '眾' to '众', '優' to '优', '勢' to '势', '歸' to '归',
+    '廣' to '广', '東' to '东', '亞' to '亚', '驗' to '验', '復' to '复', '偵' to '侦',
+    '屍' to '尸', '殭' to '僵', '殺' to '杀', '喪' to '丧', '運' to '运', '銀' to '银',
+    '紀' to '纪', '錄' to '录', '諜' to '谍', '諸' to '诸', '獄' to '狱', '壞' to '坏',
+    '壓' to '压', '絕' to '绝', '擊' to '击', '師' to '师', '權' to '权', '遊' to '游', '戲' to '戏',
+    '雙' to '双', '獵' to '猎', '惡' to '恶', '紅' to '红', '樓' to '楼', '異' to '异',
+    '獸' to '兽', '鏡' to '镜', '別' to '别', '擁' to '拥', '愛' to '爱', '協' to '协',
+    '議' to '议', '變' to '变', '稱' to '称', '夢' to '梦', '兩' to '两', '邊' to '边',
+    '選' to '选', '擇' to '择', '簡' to '简', '讀' to '读', '錯' to '错', '識' to '识',
+    '況' to '况', '準' to '准', '確' to '确', '實' to '实', '華' to '华', '質' to '质',
+    '級' to '级', '頁' to '页', '顯' to '显', '顔' to '颜', '頭' to '头', '鬥' to '斗',
+    '勝' to '胜', '敗' to '败', '熱' to '热', '點' to '点', '處' to '处', '聯' to '联',
+    '絡' to '络', '導' to '导', '張' to '张', '維' to '维', '護' to '护', '專' to '专',
+    '業' to '业', '標' to '标', '題' to '题', '態' to '态', '舊' to '旧', '續' to '续',
+    '義' to '义', '編' to '编', '輯' to '辑', '節' to '节', '鏡' to '镜', '館' to '馆',
+    '寶' to '宝', '貝' to '贝', '衛' to '卫', '鳳' to '凤', '麗' to '丽', '燈' to '灯',
+    '島' to '岛', '巖' to '岩', '臉' to '脸', '類' to '类', '緊' to '紧', '傷' to '伤',
+    '審' to '审', '查' to '查', '獨' to '独', '單' to '单', '戲' to '戏', '顧' to '顾',
+    '頒' to '颁', '獎' to '奖', '禮' to '礼'
+)
+
+private val rankingTraditionalToSimplified: Transliterator? by lazy {
+    runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Transliterator.getInstance("Traditional-Simplified")
+        } else {
+            null
+        }
+    }.getOrNull()
+}
+
+private fun simplifyRankingChinese(value: String): String {
+    val fallback = value.map { traditionalToSimplified[it] ?: it }.joinToString("")
+    return rankingTraditionalToSimplified?.let { transliterator ->
+        runCatching { transliterator.transliterate(value) }.getOrDefault(fallback)
+    } ?: fallback
+}
+
+/** The compact score chip stays numeric while accessibility keeps its meaning. */
+internal fun rankingScoreTag(value: Double): String = formatRankingScore(value)
+
+/** Keep the meaning available to TalkBack without adding words to the visual chip. */
+private fun rankingScoreContentDescription(value: Double): String = "评分 ${formatRankingScore(value)}"
+
+/** Keep only the CJK-bearing side of a bilingual provider label. */
+private fun rankingChineseTitlePart(value: String): String? {
+    val cleaned = value.trim().replace(Regex("\\s+"), " ")
+    if (cleaned.isBlank() || !cleaned.any { it in '\u3400'..'\u9fff' }) return null
+    val parts = cleaned.split(Regex("\\s*[/／|｜]\\s*"))
+        .map(String::trim)
+        .filter(String::isNotBlank)
+    for (part in parts) {
+        val bracketed = Regex("[\\(（\\[]([^\\)）\\]]+)[\\)）\\]]")
+            .findAll(part)
+            .map { it.groupValues[1].trim() }
+            .filter { candidate -> candidate.any { it in '\u3400'..'\u9fff' } }
+            .toList()
+        val outside = part.replace(Regex("[\\(（\\[][^\\)）\\]]*[\\)）\\]]"), "").trim()
+        if (bracketed.isNotEmpty() && !outside.any { it in '\u3400'..'\u9fff' }) {
+            return bracketed.first().takeUnless(::rankingContainsNonChineseScript)
+        }
+        val withoutEnglishSuffix = part.replace(
+            Regex("\\s*[\\(（\\[][^\\)）\\]]*[\\)）\\]]\\s*$"),
+            ""
+        ).trim()
+        if (withoutEnglishSuffix.any { it in '\u3400'..'\u9fff' } && !rankingContainsNonChineseScript(withoutEnglishSuffix)) {
+            return withoutEnglishSuffix
+        }
+        if (part.any { it in '\u3400'..'\u9fff' } && !rankingContainsNonChineseScript(part)) return part
+    }
+    return null
+}
+
+private fun rankingContainsNonChineseScript(value: String): Boolean = value.any { char ->
+    char in '\u3040'..'\u30ff' ||
+        char in '\u1100'..'\u11ff' ||
+        char in '\u3130'..'\u318f' ||
+        char in '\uac00'..'\ud7af'
 }
 
 /**
@@ -96,12 +311,15 @@ fun RankingScreen(
     val fallbackListState = rememberLazyListState()
     val rankingListState = listState ?: fallbackListState
     val request = state.requestOrNull()
-    val colors = appColors()
-    var showMoreFilters by rememberSaveable { mutableStateOf(false) }
+    var showMoreFilters by rememberSaveable { mutableStateOf(rankingFiltersExpandedByDefault) }
 
     InkWashBackground(modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            RankingTopBar(onBack = onBack, onRefresh = onRefresh)
+            RankingTopBar(
+                onBack = onBack,
+                onRefresh = onRefresh,
+                refreshing = state is RankingUiState.Refreshing
+            )
             LazyColumn(
                 state = rankingListState,
                 modifier = Modifier
@@ -111,16 +329,6 @@ fun RankingScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item {
-                    Text(
-                        "排行榜数据服务接入后展示已验证内容，不把片源站点顺序当作全网热度。",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("ranking-source-note"),
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
-                    )
-                }
                 val capabilities = state.capabilities
             val supportedBoards = capabilities.normalizedBoards()
             val supportedMediaTypes = capabilities.normalizedMediaTypes()
@@ -178,8 +386,8 @@ fun RankingScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (supportedRegions.isNotEmpty()) {
                                 RankingNullableFilterRow(
-                                    title = "国家/地区",
-                                    options = supportedRegions,
+                                    title = "制作国家/地区",
+                                    options = prioritizedRegionOptions(supportedRegions, selectedRequest.region),
                                     selectedId = selectedRequest.region,
                                     onSelected = { region -> onRequest(selectedRequest.copy(region = region, cursor = null)) },
                                     testTagPrefix = "ranking-region"
@@ -228,9 +436,7 @@ fun RankingScreen(
                 is RankingUiState.Refreshing -> {
                     item {
                         RankingRefreshingBanner(
-                            filterChanged = !state.snapshot.hasSameRankingContext(state.request),
-                            request = state.request,
-                            capabilities = state.capabilities
+                            filterChanged = !state.snapshot.hasSameRankingContext(state.request)
                         )
                     }
                     items(state, onLoadNextPage, onSearch)
@@ -249,7 +455,7 @@ fun RankingScreen(
                     items(state, onLoadNextPage, onSearch)
                 }
                 is RankingUiState.Empty -> if (capabilities.canLoadRanking || state.request != null) {
-                    item { RankingEmptyState(state, request, capabilities, onRefresh, onOpenSearch) }
+                    item { RankingEmptyState(state, request, onRefresh, onOpenSearch) }
                 }
                 is RankingUiState.Error -> item { RankingErrorState(state.error, state.canRetry, onRefresh, onBack, onOpenSearch) }
             }
@@ -266,9 +472,8 @@ private fun RankingFilterRow(
     onSelected: (String) -> Unit,
     testTagPrefix: String
 ) {
-    val colors = appColors()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        RankingFilterSectionTitle(title, showScrollHint = options.size > 5)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().testTag("ranking-board-tabs"),
@@ -297,9 +502,8 @@ private fun RankingMediaFilterRow(
     selected: RankingMediaType,
     onSelected: (RankingMediaType) -> Unit
 ) {
-    val colors = appColors()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("媒体类型", color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        RankingFilterSectionTitle("媒体类型", showScrollHint = supported.size > 5)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().testTag("ranking-media-tabs"),
@@ -330,9 +534,8 @@ private fun RankingNullableFilterRow(
     onSelected: (String?) -> Unit,
     testTagPrefix: String
 ) {
-    val colors = appColors()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        RankingFilterSectionTitle(title, showScrollHint = options.size > 5)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().testTag("$testTagPrefix-tabs"),
@@ -374,9 +577,8 @@ private fun RankingYearFilterRow(
     selected: Int?,
     onSelected: (Int?) -> Unit
 ) {
-    val colors = appColors()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("年份", color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        RankingFilterSectionTitle("年份", showScrollHint = options.size > 5)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().testTag("ranking-year-tabs"),
@@ -409,7 +611,27 @@ private fun RankingYearFilterRow(
 }
 
 @Composable
-private fun RankingTopBar(onBack: () -> Unit, onRefresh: () -> Unit) {
+private fun RankingFilterSectionTitle(title: String, showScrollHint: Boolean) {
+    val colors = appColors()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, color = colors.cocoa, style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp))
+        if (showScrollHint) {
+            Text(
+                "左右滑动查看更多",
+                color = colors.softGray,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                modifier = Modifier.semantics { contentDescription = "${title}可横向滑动查看更多" }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RankingTopBar(onBack: () -> Unit, onRefresh: () -> Unit, refreshing: Boolean) {
     val colors = appColors()
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -437,12 +659,21 @@ private fun RankingTopBar(onBack: () -> Unit, onRefresh: () -> Unit) {
             )
             IconButton(
                 onClick = onRefresh,
+                enabled = !refreshing,
                 modifier = Modifier
                     .size(48.dp)
                     .testTag("ranking-refresh")
-                    .semantics { contentDescription = "刷新排行榜" }
+                    .semantics { contentDescription = if (refreshing) "正在刷新排行榜" else "刷新排行榜" }
             ) {
-                Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.roseDust)
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = colors.roseDust,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.roseDust)
+                }
             }
         }
     }
@@ -457,7 +688,7 @@ private fun RankingMoreFiltersToggle(expanded: Boolean, selectedCount: Int, onTo
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .testTag("ranking-more-filters")
-            .semantics {
+            .clearAndSetSemantics {
                 contentDescription = "更多筛选，${if (expanded) "已展开" else "已收起"}${if (selectedCount > 0) "，已选 $selectedCount 项" else ""}"
             },
         border = BorderStroke(1.dp, colors.roseBeige),
@@ -466,6 +697,22 @@ private fun RankingMoreFiltersToggle(expanded: Boolean, selectedCount: Int, onTo
         val suffix = if (selectedCount > 0) " · 已选 $selectedCount 项" else ""
         Text(if (expanded) "收起更多筛选$suffix" else "更多筛选$suffix", color = colors.roseDust, fontSize = 14.sp)
     }
+}
+
+/** Keep the user-requested regional catalogue discoverable before the long tail. */
+private fun prioritizedRegionOptions(
+    options: List<RankingFilterOption>,
+    selectedId: String?
+): List<RankingFilterOption> {
+    val priority = listOf("CN", "KR", "TH", "TW", "HK", "US", "GB", "JP", "IN")
+    val byId = options.associateBy { it.id }
+    val seen = mutableSetOf<String>()
+    val ordered = buildList {
+        selectedId?.let { byId[it] }?.let { option -> if (seen.add(option.id)) add(option) }
+        priority.mapNotNull { byId[it] }.forEach { option -> if (seen.add(option.id)) add(option) }
+        options.forEach { option -> if (seen.add(option.id)) add(option) }
+    }
+    return ordered
 }
 
 @Composable
@@ -480,7 +727,6 @@ private fun RankingLoadingState() {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colors.roseBeige, strokeWidth = 2.dp)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("正在加载排行榜", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-                Text("正在等待真实榜单快照，不会用占位内容代替。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -501,11 +747,7 @@ private fun RankingCapabilitiesUnavailable(
     ) {
         Text("排行榜暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text(
-            if (state is RankingUiState.Empty && state.error != null) {
-                state.message
-            } else {
-                "当前服务没有返回完整的榜单能力，暂不显示未经验证的筛选项。"
-            },
+            "暂时无法加载榜单，请稍后再试。",
             color = colors.softGray,
             style = MaterialTheme.typography.bodyMedium
         )
@@ -528,9 +770,7 @@ private fun RankingCapabilitiesUnavailable(
 
 @Composable
 private fun RankingRefreshingBanner(
-    filterChanged: Boolean,
-    request: RankingRequest,
-    capabilities: RankingCapabilities
+    filterChanged: Boolean
 ) {
     val colors = appColors()
     SoftPanel(
@@ -559,9 +799,9 @@ private fun RankingRefreshingBanner(
                 )
                 Text(
                     if (filterChanged) {
-                        "当前仍显示上一组条件的内容，完成后将更新为：${rankingFilterSummary(request, capabilities)}"
+                        "正在更新筛选结果"
                     } else {
-                        "当前内容仍可浏览，刷新完成后会整批更新。"
+                        "正在更新榜单"
                     },
                     color = colors.softGray,
                     style = MaterialTheme.typography.bodyMedium
@@ -580,8 +820,8 @@ private fun RankingPartialBanner() {
             .semantics { liveRegion = LiveRegionMode.Polite },
         innerPadding = 12.dp
     ) {
-        Text("部分来源暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-        Text("以下内容只来自当前仍可验证的来源。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+        Text("部分内容暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+        Text("部分内容暂时无法显示。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -615,7 +855,6 @@ private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
 private fun RankingEmptyState(
     state: RankingUiState.Empty,
     request: RankingRequest?,
-    capabilities: RankingCapabilities,
     onRefresh: () -> Unit,
     onOpenSearch: () -> Unit
 ) {
@@ -626,17 +865,10 @@ private fun RankingEmptyState(
             .semantics { liveRegion = LiveRegionMode.Polite }
     ) {
         Text(
-            if (request == null) "暂时没有可展示的排行榜" else "这个条件下暂时没有榜单内容",
+            if (request == null) "暂时没有榜单内容" else "暂无符合条件的内容",
             color = colors.cocoa,
             style = MaterialTheme.typography.titleMedium
         )
-        if (request != null) {
-            Text(
-                text = rankingFilterSummary(request, capabilities),
-                color = colors.softGray,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (state.canRetry) {
                 Button(
@@ -699,8 +931,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
     item {
         RankingSnapshotMeta(state)
     }
+    val aggregateScoreLabel = rankingBoardScoreLabel(state.request.boardId)
     items(state.items, key = { entry -> "${state.snapshot.snapshotId}:${entry.canonicalId}" }) { entry ->
-        RankingCard(entry, onSearch)
+        RankingCard(entry, onSearch, aggregateScoreLabel)
     }
     item {
         state.lastError?.let { error ->
@@ -742,56 +975,53 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
 @Composable
 private fun RankingSnapshotMeta(state: RankingSnapshotUiState) {
     val colors = appColors()
-    val unavailable = state.snapshot.sourceStatuses.count { it.status.name != "AVAILABLE" }
-    SoftPanel(
-        modifier = Modifier
-            .testTag("ranking-snapshot-meta")
-            .semantics { liveRegion = LiveRegionMode.Polite },
-        innerPadding = 12.dp
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("榜单快照", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-            Text(freshnessLabel(state.snapshot.freshness), color = colors.roseDust, style = MaterialTheme.typography.bodyMedium)
-        }
-        Text(
-            buildString {
-                append("来源覆盖 ")
-                append(state.snapshot.coverage.coveredSourceIds.size)
-                append("/")
-                append(state.snapshot.coverage.sourceCount)
-                if (unavailable > 0) append(" · $unavailable 个来源暂不可用")
-            },
-            color = colors.softGray,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            "数据时间：${formatRankingTimestamp(state.snapshot.dataAsOf.epochMillis)}",
-            color = colors.softGray,
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-        )
-        val trace = buildList {
-            state.snapshot.methodologyVersion?.takeIf(String::isNotBlank)?.let { add("算法 $it") }
-            state.snapshot.identityMapVersion?.takeIf(String::isNotBlank)?.let { add("身份映射 $it") }
-        }.joinToString(" · ")
-        if (trace.isNotBlank()) {
-            Text(trace, color = colors.softGray, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
+    if (state.snapshot.totalCount != null || state.snapshot.freshness != RankingFreshness.FRESH) {
+        SoftPanel(
+            modifier = Modifier
+                .testTag("ranking-snapshot-meta")
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            innerPadding = 12.dp
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                state.snapshot.totalCount?.let { total ->
+                    Text("共 $total 条", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+                }
+                if (state.snapshot.freshness != RankingFreshness.FRESH) {
+                    Text(freshnessLabel(state.snapshot.freshness), color = colors.roseDust, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> Unit) {
+private fun RankingCard(
+    entry: RankingEntry,
+    onSearch: (RankingSearchIntent) -> Unit,
+    aggregateScoreLabel: String
+) {
     val colors = appColors()
+    val preferredTitle = rankingPreferredDisplayTitle(
+        entry.displayTitle,
+        entry.originalTitle,
+        entry.aliases + entry.searchTitle
+    )
     val rankLabel = entry.rank?.let { "第 ${it} 名" } ?: "当前榜单"
     val metadata = buildList {
         entry.releaseYear?.let(::add)
-        if (entry.countries.isNotEmpty()) add(entry.countries.joinToString("、"))
-        if (entry.genres.isNotEmpty()) add(entry.genres.joinToString("、"))
+        if (entry.countries.isNotEmpty()) {
+            val labels = entry.countries.map(::rankingRegionLabel)
+            add(if (labels.size > 4) labels.take(4).joinToString("、") + "等" else labels.joinToString("、"))
+        }
+        if (entry.genres.isNotEmpty()) add(entry.genres.take(3).map(::rankingGenreLabel).joinToString("、"))
     }.joinToString(" · ")
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("ranking-card-${canonicalTestKey(entry.canonicalId)}"),
+            .testTag("ranking-card-${canonicalTestKey(entry.canonicalId)}")
+            .semantics {
+                contentDescription = rankingCardContentDescription(entry, preferredTitle, aggregateScoreLabel)
+            },
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = colors.warmWhite.copy(alpha = .94f)),
         border = BorderStroke(1.dp, colors.lineColor),
@@ -806,7 +1036,7 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                 modifier = Modifier
                     .widthIn(min = 34.dp)
                     .wrapContentWidth()
-                    .heightIn(min = 112.dp)
+                    .heightIn(min = rankingVisualContract.posterHeightDp.dp)
                     .padding(end = 2.dp)
                     .semantics { contentDescription = rankLabel },
                 contentAlignment = Alignment.TopCenter
@@ -821,15 +1051,15 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
             }
             Box(
                 modifier = Modifier
-                    .size(84.dp, 112.dp)
+                    .size(rankingVisualContract.posterWidthDp.dp, rankingVisualContract.posterHeightDp.dp)
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "${entry.displayTitle} ${if (entry.posterUrl == null) "封面占位" else "封面"}"
+                        contentDescription = "$preferredTitle ${if (entry.posterUrl == null) "封面占位" else "封面"}"
                     },
                 contentAlignment = Alignment.Center
             ) {
-                DramaPoster(
+                RankingPoster(
                     url = entry.posterUrl,
-                    title = entry.displayTitle,
+                    title = preferredTitle,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
@@ -838,60 +1068,58 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    entry.displayTitle,
-                    color = colors.cocoa,
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                entry.originalTitle?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = colors.softGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    entry.rankingScore?.let { score ->
+                        Surface(
+                            modifier = Modifier
+                                .testTag("ranking-score-${canonicalTestKey(entry.canonicalId)}")
+                                .semantics { contentDescription = rankingScoreContentDescription(score) },
+                            shape = MaterialTheme.shapes.small,
+                            color = colors.roseDust.copy(alpha = .14f),
+                            contentColor = colors.roseDust
+                        ) {
+                            Text(
+                                rankingScoreTag(score),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    Text(
+                        preferredTitle,
+                        modifier = Modifier.weight(1f),
+                        color = colors.cocoa,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = rankingVisualContract.titleMaxLines,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 if (metadata.isNotBlank()) {
-                    Text(metadata, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(metadata, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
-                entry.summary?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                rankingDisplaySummary(entry.summary)?.let {
+                    Text(it, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = rankingVisualContract.summaryMaxLines, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    "来源覆盖 ${entry.coverage.coveredSourceIds.size}/${entry.coverage.sourceCount}",
-                    color = colors.roseDust,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-                )
-                entry.aggregateScore?.let { score ->
+                if (entry.aggregateScore != null) {
                     Text(
-                        "综合参考 ${formatRankingScore(score)}/10",
+                        "$aggregateScoreLabel ${formatRankingScore(entry.aggregateScore)}/10",
                         color = colors.roseDust,
                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                         fontWeight = FontWeight.Medium
                     )
-                }
-                val sourceRatings = entry.sourceRatings.mapNotNull { rating ->
-                    rating.value?.let { value ->
-                        "${rating.sourceId} ${formatRankingScore(value)}${rating.scaleMax?.let { "/${formatRankingScore(it)}" }.orEmpty()}"
-                    }
-                }
-                if (sourceRatings.isNotEmpty()) {
+                } else {
                     Text(
-                        "来源评分：${sourceRatings.joinToString(" · ")}",
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                val sourceRanks = entry.sourceRanks.mapNotNull { sourceRank ->
-                    sourceRank.rank?.let { "${sourceRank.sourceId} 第${it}名" }
-                }
-                if (sourceRanks.isNotEmpty()) {
-                    Text(
-                        "来源榜位：${sourceRanks.joinToString(" · ")}",
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        "暂无$aggregateScoreLabel",
+                        color = colors.roseDust,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        fontWeight = FontWeight.Medium
                     )
                 }
                 TextButton(
@@ -899,15 +1127,15 @@ private fun RankingCard(entry: RankingEntry, onSearch: (RankingSearchIntent) -> 
                         onSearch(
                             RankingSearchIntent(
                                 canonicalId = entry.canonicalId,
-                                displayTitle = entry.searchTitle,
+                                displayTitle = preferredTitle,
                                 aliases = entry.aliases.toList()
                             )
                         )
                     },
                     modifier = Modifier
-                        .heightIn(min = 48.dp)
+                        .heightIn(min = rankingVisualContract.minimumTouchTargetDp.dp)
                         .testTag("ranking-search-${canonicalTestKey(entry.canonicalId)}")
-                        .semantics { contentDescription = "搜索《${entry.searchTitle}》" },
+                        .semantics { contentDescription = "搜索《$preferredTitle》" },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
                 ) { Text("去搜索", color = colors.roseDust, fontSize = 14.sp) }
             }
@@ -931,34 +1159,13 @@ private fun com.lovelyreader.video.ranking.RankingSnapshot.hasSameRankingContext
         filters.year == request.year && filters.genre == request.genre &&
         filters.language == request.language && filters.limit == request.limit
 
-private fun rankingFilterSummary(
-    request: RankingRequest,
-    capabilities: RankingCapabilities
-): String = buildList {
-    add("榜单 ${capabilities.normalizedBoards().firstOrNull { it.id == request.boardId }?.label ?: request.boardId}")
-    add(mediaTypeLabel(request.mediaType))
-    request.period?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedPeriods().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.region?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedRegions().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.year?.let { add(it.toString()) }
-    request.genre?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedGenres().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.language?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedLanguages().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-}.joinToString(" · ")
-
 private fun rankingErrorCopy(error: RankingError): String = when (error.kind) {
     RankingFailureKind.RATE_LIMITED -> "请求过于频繁，请稍后再试。"
     RankingFailureKind.BAD_REQUEST -> "当前筛选条件暂不支持，请调整筛选后重试。"
     RankingFailureKind.NOT_FOUND -> "当前榜单暂不可用。"
-    RankingFailureKind.SNAPSHOT_EXPIRED -> "榜单快照已更新，请重新加载。"
-    RankingFailureKind.CONTENT_TYPE, RankingFailureKind.MALFORMED_RESPONSE -> "榜单返回内容异常，暂时无法读取。"
-    RankingFailureKind.SERVICE_UNAVAILABLE -> "榜单服务暂未提供有效快照。"
+    RankingFailureKind.SNAPSHOT_EXPIRED -> "榜单已更新，请重新加载。"
+    RankingFailureKind.CONTENT_TYPE, RankingFailureKind.MALFORMED_RESPONSE -> "暂时无法读取榜单，请稍后再试。"
+    RankingFailureKind.SERVICE_UNAVAILABLE -> "榜单暂时不可用，请稍后再试。"
     RankingFailureKind.INVALID_REQUEST -> "榜单筛选条件无效。"
     RankingFailureKind.NOT_MODIFIED_WITHOUT_CACHE -> "榜单缓存已失效，请重新加载。"
     RankingFailureKind.HTTP_ERROR, RankingFailureKind.NETWORK -> "榜单暂时连接不上，请检查网络后重试。"
@@ -969,9 +1176,6 @@ private fun freshnessLabel(freshness: RankingFreshness): String = when (freshnes
     RankingFreshness.STALE -> "可能已变化"
     RankingFreshness.EXPIRED -> "已过期"
 }
-
-private fun formatRankingTimestamp(epochMillis: Long): String =
-    java.time.Instant.ofEpochMilli(epochMillis).toString().replace('T', ' ').removeSuffix("Z")
 
 private fun formatRankingScore(value: Double): String =
     String.format(java.util.Locale.ROOT, "%.1f", value)

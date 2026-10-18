@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -951,8 +952,16 @@ fun ReaderScreen(
         topBar = {},
         bottomBar = {},
         containerColor = readerChrome
-    ) { _ ->
-        InkWashBackground(Modifier.fillMaxSize()) {
+    ) { contentPadding ->
+        InkWashBackground(
+            Modifier
+                .fillMaxSize()
+                // The reader draws its own chrome insets so that paginated
+                // text stays below the overlaid toolbar and bottom menu.
+                // Consume Scaffold's padding to keep that deliberate layout
+                // from triggering the unused-content-padding lint check.
+                .consumeWindowInsets(contentPadding)
+        ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -1597,7 +1606,6 @@ fun SettingsScreen(
     updateHistory: List<UpdateHistoryEntry> = emptyList(),
     updateHistoryMessage: String = "",
     onLoadUpdateHistory: () -> Unit = {},
-    onOpenVisualFixture: (() -> Unit)? = null,
     updateCoverUrl: String? = null,
     onExportBackup: () -> Unit = {},
     onImportBackup: () -> Unit = {},
@@ -1639,11 +1647,6 @@ fun SettingsScreen(
                     onImportBackup = onImportBackup,
                     message = backupMessage
                 )
-            }
-            onOpenVisualFixture?.let { openFixture ->
-                item {
-                    DebugVisualAcceptancePanel(onOpen = openFixture)
-                }
             }
             if (updateHistory.isNotEmpty() || updateHistoryMessage.isNotBlank()) {
                 item {
@@ -1687,23 +1690,6 @@ private fun BackupPanel(onExportBackup: () -> Unit, onImportBackup: () -> Unit, 
         message.takeIf(String::isNotBlank)?.let {
             Text(it, color = appColors().roseDust, style = MaterialTheme.typography.bodySmall)
         }
-    }
-}
-
-@Composable
-private fun DebugVisualAcceptancePanel(onOpen: () -> Unit) {
-    SoftPanel {
-        Text("高保真视觉验收", style = MaterialTheme.typography.titleLarge, color = appColors().ink)
-        Text(
-            "可逐页打开书籍、阅读、追剧、播放器、下载和小纸条概念基线，用于 9:16 像素验收。",
-            color = appColors().cocoa.copy(alpha = .72f)
-        )
-        Button(
-            onClick = onOpen,
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            shape = RoundedCornerShape(25.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = appColors().roseDust)
-        ) { Text("打开高保真验收") }
     }
 }
 

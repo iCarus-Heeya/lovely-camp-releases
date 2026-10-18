@@ -29,7 +29,10 @@ private fun intNumber(o: JSONObject, n: String, min: Int = Int.MIN_VALUE, max: I
 private fun rank(v: Int?, name: String): Int? { if (v != null) require(v >= 1) { "invalid $name" }; return v }
 private fun array(o: JSONObject, n: String): JSONArray? { if (!o.has(n) || o.isNull(n)) return null; return o.get(n) as? JSONArray ?: error("$n must be array") }
 private fun strings(a: JSONArray?, name: String): List<String> = (0 until (a?.length() ?: 0)).map { text(a!!.get(it) as? String ?: error("$name must be text"), name)!! }
-private const val MAX_CAPABILITY_OPTIONS = 64
+// The bundled public snapshot exposes every year in its 1950-current scope.
+// 77 years is still a bounded handshake, but the former 64-item ceiling made
+// capabilities fail closed as soon as the catalogue became genuinely broad.
+private const val MAX_CAPABILITY_OPTIONS = 128
 private fun capabilityOptions(root: JSONObject, name: String): List<RankingFilterOption> {
     val values = array(root, name) ?: return emptyList()
     require(values.length() <= MAX_CAPABILITY_OPTIONS) { "too many $name" }
@@ -67,11 +70,29 @@ private fun coverage(o: JSONObject): RankingCoverage {
     if (complete) require(count == ids.size) { "complete coverage must list every source" }
     return RankingCoverage(count, ids, complete)
 }
+
+private fun metadataCoverage(o: JSONObject): RankingMetadataCoverage {
+    val total = intNumber(o, "total", 0)
+    fun count(name: String): Int = intNumber(o, name, 0, total)
+    return RankingMetadataCoverage(
+        total = total,
+        chineseTitle = count("chineseTitle"),
+        summary = count("summary"),
+        poster = count("poster"),
+        region = count("region"),
+        rating = count("rating")
+    )
+}
 private fun aggregateScore(o: JSONObject, name: String): Double? {
     if (!o.has(name) || o.isNull(name)) return null
     return number(o, name).also { value ->
         require(value in RANKING_AGGREGATE_SCORE_MIN..RANKING_AGGREGATE_SCORE_MAX) { "$name out of range" }
     }
+}
+
+private fun optionalFiniteNumber(o: JSONObject, name: String): Double? {
+    if (!o.has(name) || o.isNull(name)) return null
+    return number(o, name)
 }
 
 private fun ratings(a: JSONArray?): List<SourceRating> {
@@ -199,10 +220,22 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
     val seenIds = mutableSetOf<String>(); val seenRanks = mutableSetOf<Int>(); val items = (0 until itemsJson.length()).map { i ->
         val e = itemsJson.getJSONObject(i); val id = requiredText(e, "canonicalId"); require(seenIds.add(id)) { "duplicate canonicalId" }
         val r = if (e.isNull("rank")) null else rank(intNumber(e, "rank", 1), "rank"); if (r != null) require(seenRanks.add(r)) { "duplicate rank" }
-        val poster = nullable(e, "posterUrl"); poster?.let { val u = URI(it); require(u.scheme.equals("https", true) && !u.host.isNullOrBlank() && u.userInfo == null && isPublicHost(u.host)) { "invalid posterUrl" } }
-        // The shared source-site poster loader is not a ranking-approved DNS-bound transport.
-        // Keep valid metadata but emit placeholders until that independent boundary exists.
-        // Disk cache restores use this parser too, so older named URLs cannot bypass the gate.
+        val poster = nullable(e, "posterUrl")?.let { value ->
+            if (value.startsWith("asset://")) {
+                require(value.startsWith("asset://ranking/posters/") &&
+                    !value.contains("..") && !value.contains('\\') && value.length <= 240) {
+                    "invalid ranking poster asset"
+                }
+                value
+            } else {
+                val u = URI(value)
+                require(u.scheme.equals("https", true) && !u.host.isNullOrBlank() && u.userInfo == null && isPublicHost(u.host)) { "invalid posterUrl" }
+                // Release snapshots may reference only the public metadata CDNs
+                // used by the catalog builder. Unknown hosts remain placeholders
+                // until a dedicated image transport is explicitly approved.
+                value.takeIf { isApprovedRankingPosterHost(u.host) }
+            }
+        }
         val itemCoverage = coverage(obj(e, "coverage"))
         require(itemCoverage.sourceCount <= cov.sourceCount) { "item coverage exceeds snapshot source count" }
         require(itemCoverage.coveredSourceIds.all(cov.coveredSourceIds::contains)) { "item coverage exceeds snapshot coverage" }
@@ -210,7 +243,7 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         val itemRanks = ranks(array(e, "sourceRanks"))
         require(itemRatings.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rating source is not covered" }
         require(itemRanks.all { it.sourceId in itemCoverage.coveredSourceIds }) { "rank source is not covered" }
-        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), null, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else aggregateScore(e, "aggregateScore"), itemRatings, itemRanks, itemCoverage, requiredText(e, "searchTitle"))
+        RankingEntry(id, r, requiredText(e, "displayTitle"), nullable(e, "originalTitle"), strings(array(e, "aliases"), "alias"), media(requiredText(e, "mediaType")), if (e.isNull("releaseYear")) null else intNumber(e, "releaseYear", 1800, 2200), strings(array(e, "countries"), "country"), strings(array(e, "genres"), "genre"), poster, nullable(e, "summary"), if (e.isNull("aggregateScore")) null else aggregateScore(e, "aggregateScore"), itemRatings, itemRanks, itemCoverage, requiredText(e, "searchTitle"), optionalFiniteNumber(e, "rankingScore"))
     }
     val allSourcesAvailable = cov.complete && cov.sourceCount == statuses.size &&
         statuses.all { status -> status.status == RankingSourceHealth.AVAILABLE }
@@ -240,7 +273,18 @@ fun parseRankingSnapshot(raw: String, nowMillis: Long = System.currentTimeMillis
         RankingFreshness.STALE -> require(nowMillis >= expires.epochMillis && nowMillis <= stale.epochMillis) { "freshness is inconsistent" }
         RankingFreshness.EXPIRED -> require(nowMillis > stale.epochMillis) { "freshness is inconsistent" }
     }
-    RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"), methodologyVersion, identityMapVersion)
+    val totalCount = if (!root.has("totalCount") || root.isNull("totalCount")) null else intNumber(root, "totalCount", 0)
+    val metadata = if (!root.has("metadataCoverage") || root.isNull("metadataCoverage")) null else metadataCoverage(obj(root, "metadataCoverage"))
+    RankingSnapshot(root.getInt("schemaVersion"), requestId, boardId, filters, snapshotId, generated, data, expires, stale, freshness, availability, cov, statuses, items, nullable(root, "nextCursor"), methodologyVersion, identityMapVersion, totalCount, metadata)
+}
+
+private fun isApprovedRankingPosterHost(host: String): Boolean {
+    val normalized = host.lowercase().trimEnd('.')
+    return normalized == "static.tvmaze.com" ||
+        normalized == "upload.wikimedia.org" ||
+        normalized == "thumb.wikimedia.org" ||
+        normalized == "commons.wikimedia.org" ||
+        normalized == "m.media-amazon.com"
 }
 
 private fun isPublicHost(host: String): Boolean {
