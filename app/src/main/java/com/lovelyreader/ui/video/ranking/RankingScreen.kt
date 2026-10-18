@@ -70,8 +70,6 @@ import com.lovelyreader.video.ranking.RankingMediaType
 import com.lovelyreader.video.ranking.RankingRequest
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 private fun mediaTypeLabel(mediaType: RankingMediaType): String = when (mediaType) {
     RankingMediaType.ALL -> "全部"
@@ -115,35 +113,24 @@ internal fun rankingSourceLabel(value: String): String = when (value.lowercase()
     else -> value
 }
 
-internal fun rankingMethodologyLabel(version: String): String = when {
-    version.contains("imdb-rated-scope-v7", ignoreCase = true) -> "完整公开评分目录（票数≥100）· 偏好类型优先 + 贝叶斯加权排序 · IMDb + TVmaze剧集数据"
-    version.contains("imdb-rated-scope-v6", ignoreCase = true) -> "完整公开评分目录（票数≥100）· 贝叶斯加权排序（票数仅影响置信度） · IMDb + TVmaze剧集数据"
-    version.contains("imdb-rated-scope-v5", ignoreCase = true) -> "完整公开评分目录（票数≥100）· 排名分按评分与票数置信度排序 · IMDb + TVmaze剧集数据"
-    version.contains("imdb-rated-scope-v4", ignoreCase = true) -> "完整公开评分目录（票数≥100）· IMDb + TVmaze剧集数据"
-    version.contains("imdb-rated-scope-v3", ignoreCase = true) -> "公开评分目录（票数≥100）· 按评分降序"
-    version.contains("imdb-rated-scope-v2", ignoreCase = true) -> "IMDb公开评分全量快照 · 票数≥1000 · 按评分降序"
-    version.contains("imdb-rated-scope-v1", ignoreCase = true) -> "IMDb公开评分全量快照 · 票数≥5000 · 按评分降序"
-    version.contains("stratified-v3", ignoreCase = true) -> "分层综合参考 v3"
-    version.contains("stratified-v2", ignoreCase = true) -> "分层综合参考 v2"
-    else -> "综合参考算法"
-}
-
-internal fun rankingAggregateScoreLabel(methodologyVersion: String?): String =
-    if (methodologyVersion.orEmpty().contains("imdb-rated-scope-v", ignoreCase = true)) {
-        "综合参考分"
-    } else {
-        "综合参考"
-    }
-
-internal fun rankingBoardScoreLabel(boardId: String, methodologyVersion: String?): String = when (boardId) {
+internal fun rankingBoardScoreLabel(boardId: String): String = when (boardId) {
     "source-imdb" -> "IMDb评分"
     "source-tvmaze" -> "剧集评分"
-    else -> rankingAggregateScoreLabel(methodologyVersion)
+    else -> "评分"
 }
 
-internal fun rankingIdentityLabel(version: String): String = when {
-    version.contains("zh", ignoreCase = true) -> "中文身份映射"
-    else -> "身份映射"
+/** Converts catalog provenance text into a short, readable synopsis. */
+internal fun rankingDisplaySummary(summary: String?): String? {
+    val cleaned = summary
+        ?.trim()
+        ?.removePrefix("公开资料概览：")
+        ?.removeSuffix("；当前快照未收录剧情正文。")
+        ?.removeSuffix("当前快照未收录剧情正文。")
+        ?.trim(' ', '；', '。')
+        .orEmpty()
+    return cleaned
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.matches(Regex("《[^》]+》")) }
 }
 
 /**
@@ -263,11 +250,11 @@ private fun simplifyRankingChinese(value: String): String {
     } ?: fallback
 }
 
-/** The compact visual chip is numeric; the formula remains explained above the list. */
+/** The compact score chip stays numeric while accessibility keeps its meaning. */
 internal fun rankingScoreTag(value: Double): String = formatRankingScore(value)
 
 /** Keep the meaning available to TalkBack without adding words to the visual chip. */
-private fun rankingScoreContentDescription(value: Double): String = "排名分 ${formatRankingScore(value)}"
+private fun rankingScoreContentDescription(value: Double): String = "评分 ${formatRankingScore(value)}"
 
 /** Keep only the CJK-bearing side of a bilingual provider label. */
 private fun rankingChineseTitlePart(value: String): String? {
@@ -324,7 +311,6 @@ fun RankingScreen(
     val fallbackListState = rememberLazyListState()
     val rankingListState = listState ?: fallbackListState
     val request = state.requestOrNull()
-    val colors = appColors()
     var showMoreFilters by rememberSaveable { mutableStateOf(rankingFiltersExpandedByDefault) }
 
     InkWashBackground(modifier.fillMaxSize()) {
@@ -343,16 +329,6 @@ fun RankingScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item {
-                    Text(
-                        "榜单来自公开评分数据；综合榜与来源榜分开展示，不把片源站点顺序当作全网热度。",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("ranking-source-note"),
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)
-                    )
-                }
                 val capabilities = state.capabilities
             val supportedBoards = capabilities.normalizedBoards()
             val supportedMediaTypes = capabilities.normalizedMediaTypes()
@@ -460,9 +436,7 @@ fun RankingScreen(
                 is RankingUiState.Refreshing -> {
                     item {
                         RankingRefreshingBanner(
-                            filterChanged = !state.snapshot.hasSameRankingContext(state.request),
-                            request = state.request,
-                            capabilities = state.capabilities
+                            filterChanged = !state.snapshot.hasSameRankingContext(state.request)
                         )
                     }
                     items(state, onLoadNextPage, onSearch)
@@ -481,7 +455,7 @@ fun RankingScreen(
                     items(state, onLoadNextPage, onSearch)
                 }
                 is RankingUiState.Empty -> if (capabilities.canLoadRanking || state.request != null) {
-                    item { RankingEmptyState(state, request, capabilities, onRefresh, onOpenSearch) }
+                    item { RankingEmptyState(state, request, onRefresh, onOpenSearch) }
                 }
                 is RankingUiState.Error -> item { RankingErrorState(state.error, state.canRetry, onRefresh, onBack, onOpenSearch) }
             }
@@ -753,7 +727,6 @@ private fun RankingLoadingState() {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colors.roseBeige, strokeWidth = 2.dp)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("正在加载排行榜", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-                Text("正在等待真实榜单快照，不会用占位内容代替。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -774,11 +747,7 @@ private fun RankingCapabilitiesUnavailable(
     ) {
         Text("排行榜暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
         Text(
-            if (state is RankingUiState.Empty && state.error != null) {
-                state.message
-            } else {
-                "当前服务没有返回完整的榜单能力，暂不显示未经验证的筛选项。"
-            },
+            "暂时无法加载榜单，请稍后再试。",
             color = colors.softGray,
             style = MaterialTheme.typography.bodyMedium
         )
@@ -801,9 +770,7 @@ private fun RankingCapabilitiesUnavailable(
 
 @Composable
 private fun RankingRefreshingBanner(
-    filterChanged: Boolean,
-    request: RankingRequest,
-    capabilities: RankingCapabilities
+    filterChanged: Boolean
 ) {
     val colors = appColors()
     SoftPanel(
@@ -832,9 +799,9 @@ private fun RankingRefreshingBanner(
                 )
                 Text(
                     if (filterChanged) {
-                        "当前仍显示上一组条件的内容，完成后将更新为：${rankingFilterSummary(request, capabilities)}"
+                        "正在更新筛选结果"
                     } else {
-                        "当前内容仍可浏览，刷新完成后会整批更新。"
+                        "正在更新榜单"
                     },
                     color = colors.softGray,
                     style = MaterialTheme.typography.bodyMedium
@@ -853,8 +820,8 @@ private fun RankingPartialBanner() {
             .semantics { liveRegion = LiveRegionMode.Polite },
         innerPadding = 12.dp
     ) {
-        Text("部分来源暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-        Text("以下内容只来自当前仍可验证的来源。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
+        Text("部分内容暂不可用", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+        Text("部分内容暂时无法显示。", color = colors.softGray, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -888,7 +855,6 @@ private fun RankingStaleBanner(onRetry: () -> Unit, canRetry: Boolean) {
 private fun RankingEmptyState(
     state: RankingUiState.Empty,
     request: RankingRequest?,
-    capabilities: RankingCapabilities,
     onRefresh: () -> Unit,
     onOpenSearch: () -> Unit
 ) {
@@ -899,17 +865,10 @@ private fun RankingEmptyState(
             .semantics { liveRegion = LiveRegionMode.Polite }
     ) {
         Text(
-            if (request == null) "暂时没有可展示的排行榜" else "这个条件下暂时没有榜单内容",
+            if (request == null) "暂时没有榜单内容" else "暂无符合条件的内容",
             color = colors.cocoa,
             style = MaterialTheme.typography.titleMedium
         )
-        if (request != null) {
-            Text(
-                text = rankingFilterSummary(request, capabilities),
-                color = colors.softGray,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (state.canRetry) {
                 Button(
@@ -972,7 +931,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
     item {
         RankingSnapshotMeta(state)
     }
-    val aggregateScoreLabel = rankingBoardScoreLabel(state.request.boardId, state.snapshot.methodologyVersion)
+    val aggregateScoreLabel = rankingBoardScoreLabel(state.request.boardId)
     items(state.items, key = { entry -> "${state.snapshot.snapshotId}:${entry.canonicalId}" }) { entry ->
         RankingCard(entry, onSearch, aggregateScoreLabel)
     }
@@ -1016,75 +975,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.items(
 @Composable
 private fun RankingSnapshotMeta(state: RankingSnapshotUiState) {
     val colors = appColors()
-    val unavailable = state.snapshot.sourceStatuses.count { it.status.name != "AVAILABLE" }
-    SoftPanel(
-        modifier = Modifier
-            .testTag("ranking-snapshot-meta")
-            .semantics { liveRegion = LiveRegionMode.Polite },
-        innerPadding = 12.dp
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("榜单快照", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
-            Text(freshnessLabel(state.snapshot.freshness), color = colors.roseDust, style = MaterialTheme.typography.bodyMedium)
-        }
-        Text(
-            buildString {
-                append("来源覆盖 ")
-                append(state.snapshot.coverage.coveredSourceIds.size)
-                append("/")
-                append(state.snapshot.coverage.sourceCount)
-                if (unavailable > 0) append(" · $unavailable 个来源暂不可用")
-            },
-            color = colors.softGray,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        state.snapshot.totalCount?.let { total ->
-            val first = state.items.firstOrNull()?.rank
-            val last = state.items.lastOrNull()?.rank
-            Text(
-                if (first != null && last != null) {
-                    "当前条件共 $total 条 · 已显示第 $first–$last 条"
-                } else {
-                    "当前条件共 $total 条"
-                },
-                color = colors.cocoa,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-        if (state.items.isNotEmpty()) {
-            Text(
-                "当前页资料质量：${rankingPageMetadataCoverage(state.items).shortLabel}",
-                color = colors.softGray,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                modifier = Modifier.testTag("ranking-page-metadata-quality")
-            )
-        }
-        state.snapshot.metadataCoverage?.let { coverage ->
-            Text(
-                "完整目录资料质量：中文名 ${coverage.chineseTitle}/${coverage.total} · 简介 ${coverage.summary}/${coverage.total} · 海报 ${coverage.poster}/${coverage.total}",
-                color = colors.softGray,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                modifier = Modifier.testTag("ranking-catalog-metadata-quality")
-            )
-        }
-        Text(
-            "数据时间：${formatRankingTimestamp(state.snapshot.dataAsOf.epochMillis)}",
-            color = colors.softGray,
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-        )
-        val trace = buildList {
-            state.snapshot.methodologyVersion?.takeIf(String::isNotBlank)?.let(::rankingMethodologyLabel)?.let(::add)
-            state.snapshot.identityMapVersion?.takeIf(String::isNotBlank)?.let(::rankingIdentityLabel)?.let(::add)
-        }.joinToString(" · ")
-        if (trace.isNotBlank()) {
-            Text(trace, color = colors.softGray, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
-        }
-        if (state.items.any { it.rankingScore != null }) {
-            Text(
-                "排名分 = 贝叶斯加权分（评分 + 票数置信度），票数仅用于平滑小样本，不会放大评分；综合参考分是原始评分",
-                color = colors.softGray,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-            )
+    if (state.snapshot.totalCount != null || state.snapshot.freshness != RankingFreshness.FRESH) {
+        SoftPanel(
+            modifier = Modifier
+                .testTag("ranking-snapshot-meta")
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            innerPadding = 12.dp
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                state.snapshot.totalCount?.let { total ->
+                    Text("共 $total 条", color = colors.cocoa, style = MaterialTheme.typography.titleMedium)
+                }
+                if (state.snapshot.freshness != RankingFreshness.FRESH) {
+                    Text(freshnessLabel(state.snapshot.freshness), color = colors.roseDust, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     }
 }
@@ -1101,7 +1006,6 @@ private fun RankingCard(
         entry.originalTitle,
         entry.aliases + entry.searchTitle
     )
-    val quality = rankingMetadataQuality(entry, preferredTitle)
     val rankLabel = entry.rank?.let { "第 ${it} 名" } ?: "当前榜单"
     val metadata = buildList {
         entry.releaseYear?.let(::add)
@@ -1200,25 +1104,8 @@ private fun RankingCard(
                 if (metadata.isNotBlank()) {
                     Text(metadata, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
-                entry.summary?.takeIf(String::isNotBlank)?.let {
+                rankingDisplaySummary(entry.summary)?.let {
                     Text(it, color = colors.softGray, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp), maxLines = rankingVisualContract.summaryMaxLines, overflow = TextOverflow.Ellipsis)
-                }
-                Text(
-                    "来源覆盖 ${entry.coverage.coveredSourceIds.size}/${entry.coverage.sourceCount}",
-                    color = colors.roseDust,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-                )
-                if (!quality.isComplete) {
-                    Text(
-                        quality.displayLabel,
-                        modifier = Modifier
-                            .testTag("ranking-quality-${canonicalTestKey(entry.canonicalId)}")
-                            .semantics { contentDescription = quality.displayLabel },
-                        color = colors.roseDust,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
                 if (entry.aggregateScore != null) {
                     Text(
@@ -1233,32 +1120,6 @@ private fun RankingCard(
                         color = colors.roseDust,
                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                         fontWeight = FontWeight.Medium
-                    )
-                }
-                val sourceRatings = entry.sourceRatings.mapNotNull { rating ->
-                    rating.value?.let { value ->
-                        "${rankingSourceLabel(rating.sourceId)} ${formatRankingScore(value)}${rating.scaleMax?.let { "/${formatRankingScore(it)}" }.orEmpty()}"
-                    }
-                }
-                if (sourceRatings.isNotEmpty()) {
-                    Text(
-                        "来源评分：${sourceRatings.joinToString(" · ")}",
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                val sourceRanks = entry.sourceRanks.mapNotNull { sourceRank ->
-                    sourceRank.rank?.let { "${rankingSourceLabel(sourceRank.sourceId)} 第${it}名" }
-                }
-                if (sourceRanks.isNotEmpty()) {
-                    Text(
-                        "来源榜位：${sourceRanks.joinToString(" · ")}",
-                        color = colors.softGray,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 TextButton(
@@ -1298,34 +1159,13 @@ private fun com.lovelyreader.video.ranking.RankingSnapshot.hasSameRankingContext
         filters.year == request.year && filters.genre == request.genre &&
         filters.language == request.language && filters.limit == request.limit
 
-private fun rankingFilterSummary(
-    request: RankingRequest,
-    capabilities: RankingCapabilities
-): String = buildList {
-    add("榜单 ${capabilities.normalizedBoards().firstOrNull { it.id == request.boardId }?.label ?: request.boardId}")
-    add(mediaTypeLabel(request.mediaType))
-    request.period?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedPeriods().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.region?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedRegions().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.year?.let { add(it.toString()) }
-    request.genre?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedGenres().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-    request.language?.takeIf(String::isNotBlank)?.let {
-        add(capabilities.normalizedLanguages().firstOrNull { option -> option.id == it }?.label ?: it)
-    }
-}.joinToString(" · ")
-
 private fun rankingErrorCopy(error: RankingError): String = when (error.kind) {
     RankingFailureKind.RATE_LIMITED -> "请求过于频繁，请稍后再试。"
     RankingFailureKind.BAD_REQUEST -> "当前筛选条件暂不支持，请调整筛选后重试。"
     RankingFailureKind.NOT_FOUND -> "当前榜单暂不可用。"
-    RankingFailureKind.SNAPSHOT_EXPIRED -> "榜单快照已更新，请重新加载。"
-    RankingFailureKind.CONTENT_TYPE, RankingFailureKind.MALFORMED_RESPONSE -> "榜单返回内容异常，暂时无法读取。"
-    RankingFailureKind.SERVICE_UNAVAILABLE -> "榜单服务暂未提供有效快照。"
+    RankingFailureKind.SNAPSHOT_EXPIRED -> "榜单已更新，请重新加载。"
+    RankingFailureKind.CONTENT_TYPE, RankingFailureKind.MALFORMED_RESPONSE -> "暂时无法读取榜单，请稍后再试。"
+    RankingFailureKind.SERVICE_UNAVAILABLE -> "榜单暂时不可用，请稍后再试。"
     RankingFailureKind.INVALID_REQUEST -> "榜单筛选条件无效。"
     RankingFailureKind.NOT_MODIFIED_WITHOUT_CACHE -> "榜单缓存已失效，请重新加载。"
     RankingFailureKind.HTTP_ERROR, RankingFailureKind.NETWORK -> "榜单暂时连接不上，请检查网络后重试。"
@@ -1336,11 +1176,6 @@ private fun freshnessLabel(freshness: RankingFreshness): String = when (freshnes
     RankingFreshness.STALE -> "可能已变化"
     RankingFreshness.EXPIRED -> "已过期"
 }
-
-private fun formatRankingTimestamp(epochMillis: Long): String =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        .withZone(ZoneId.systemDefault())
-        .format(java.time.Instant.ofEpochMilli(epochMillis))
 
 private fun formatRankingScore(value: Double): String =
     String.format(java.util.Locale.ROOT, "%.1f", value)

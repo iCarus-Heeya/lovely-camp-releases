@@ -11,11 +11,51 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 
 class DramaViewModelTest {
+    @Test
+    fun `player failure can switch to the next source and reopen the same episode`() = runTest {
+        val title = VideoTitle("drama", "Drama", "https://video.example/drama")
+        val siteSource = VideoSource("site", title.id, "站内播放")
+        val directSource = VideoSource("direct", title.id, "红牛资源")
+        val siteEpisode = VideoEpisode("site-episode", siteSource.id, "第1集", "https://video.example/site/1", 0, title.id)
+        val directEpisode = VideoEpisode("direct-episode", directSource.id, "第1集", "https://video.example/direct/1", 0, title.id)
+        val directMedia = VideoMediaLink("https://media.example/direct/1.mp4")
+        val viewModel = DramaViewModel(
+            rootResolver = FakeResolver(VideoRootResolution(VideoSiteRoot("https://video.example", 1L), VideoRootResolutionStatus.RESOLVED, "ok")),
+            siteAdapter = FakeAdapter(
+                detail = VideoTitleDetail(title, listOf(siteSource, directSource)),
+                episodes = mapOf(siteSource.id to listOf(siteEpisode), directSource.id to listOf(directEpisode)),
+                media = mapOf(
+                    siteEpisode.id to VideoMediaLink(siteEpisode.url, playbackMode = VideoPlaybackMode.SITE_PLAYER),
+                    directEpisode.id to directMedia
+                )
+            ),
+            library = FakeLibrary(),
+            downloadEnqueuer = FakeDownloadEnqueuer(),
+            coroutineScope = this
+        )
+
+        advanceUntilIdle()
+        viewModel.openTitle(title)
+        advanceUntilIdle()
+        viewModel.openEpisode(siteEpisode)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.hasAlternativePlaybackSource())
+        assertTrue(viewModel.tryNextPlaybackSource())
+        advanceUntilIdle()
+
+        assertEquals(directSource, viewModel.selectedSource.value)
+        assertEquals(directEpisode, viewModel.playback.value.episode)
+        assertEquals(directMedia, viewModel.playback.value.media)
+        assertFalse(viewModel.hasAlternativePlaybackSource())
+    }
+
     @Test
     fun `resume matches saved source and episode after a provider host changes`() = runTest {
         val currentTitle = VideoTitle("https://new-provider.example/drama", "Drama", "https://new-provider.example/drama")

@@ -83,24 +83,25 @@ class RankingPresentationLabelTest {
     }
 
     @Test
-    fun technical_snapshot_versions_are_localized_for_end_users() {
-        assertEquals("分层综合参考 v2", rankingMethodologyLabel("weighted-stratified-v2"))
-        assertEquals("分层综合参考 v3", rankingMethodologyLabel("weighted-stratified-v3"))
-        assertEquals("完整公开评分目录（票数≥100）· IMDb + TVmaze剧集数据", rankingMethodologyLabel("imdb-rated-scope-v4-tvmaze-full-index"))
-        assertEquals("完整公开评分目录（票数≥100）· 排名分按评分与票数置信度排序 · IMDb + TVmaze剧集数据", rankingMethodologyLabel("imdb-rated-scope-v5-tvmaze-full-index"))
-        assertEquals("完整公开评分目录（票数≥100）· 贝叶斯加权排序（票数仅影响置信度） · IMDb + TVmaze剧集数据", rankingMethodologyLabel("imdb-rated-scope-v6-tvmaze-full-index"))
-        assertEquals("完整公开评分目录（票数≥100）· 偏好类型优先 + 贝叶斯加权排序 · IMDb + TVmaze剧集数据", rankingMethodologyLabel("imdb-rated-scope-v7-preferred-genres-tvmaze-full-index"))
-        assertEquals("公开评分目录（票数≥100）· 按评分降序", rankingMethodologyLabel("imdb-rated-scope-v3-tvmaze-enriched"))
-        assertEquals("中文身份映射", rankingIdentityLabel("imdb-tvmaze-wikipedia-zh-v2"))
-        assertEquals("综合参考算法", rankingMethodologyLabel("debug-v1"))
-        assertEquals("综合参考分", rankingAggregateScoreLabel("imdb-rated-scope-v4-tvmaze-full-index"))
-        assertEquals("综合参考分", rankingBoardScoreLabel("aggregate", "imdb-rated-scope-v4-tvmaze-full-index"))
-        assertEquals("IMDb评分", rankingBoardScoreLabel("source-imdb", "imdb-rated-scope-v4-tvmaze-full-index"))
-        assertEquals("剧集评分", rankingBoardScoreLabel("source-tvmaze", "imdb-rated-scope-v4-tvmaze-full-index"))
-        assertEquals("综合参考", rankingAggregateScoreLabel("debug-v1"))
-        assertEquals("身份映射", rankingIdentityLabel("debug-v1"))
+    fun ranking_card_uses_plain_score_label_for_end_users() {
+        assertEquals("评分", rankingBoardScoreLabel("aggregate"))
+        assertEquals("IMDb评分", rankingBoardScoreLabel("source-imdb"))
+        assertEquals("剧集评分", rankingBoardScoreLabel("source-tvmaze"))
         assertEquals("韩国", rankingRegionLabel("KR"))
         assertEquals("剧集评分", rankingSourceLabel("tvmaze"))
         assertEquals("IMDb评分", rankingSourceLabel("imdb"))
+    }
+
+    @Test
+    fun ranking_summary_removes_internal_snapshot_copy() {
+        assertEquals(
+            "《绝命毒师》是2008年美国剧情、犯罪作品",
+            rankingDisplaySummary("公开资料概览：《绝命毒师》是2008年美国剧情、犯罪作品；当前快照未收录剧情正文。")
+        )
+        assertEquals(
+            "真实简介仍保留",
+            rankingDisplaySummary("真实简介仍保留")
+        )
+        assertEquals(null, rankingDisplaySummary("公开资料概览：《空条目》；当前快照未收录剧情正文。"))
     }
 }

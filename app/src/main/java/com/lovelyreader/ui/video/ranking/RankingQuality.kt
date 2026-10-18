@@ -92,12 +92,8 @@ internal fun rankingCardContentDescription(
 ): String = buildString {
     append(entry.rank?.let { "第 $it 名" } ?: "当前榜单")
     append("，《$preferredTitle》")
-    entry.rankingScore?.let { append("，排名分 ${rankingScoreTag(it)}") }
+    entry.rankingScore?.let { append("，评分 ${rankingScoreTag(it)}") }
     entry.aggregateScore?.let { append("，$aggregateScoreLabel ${rankingScoreTag(it)}/10") }
-    val quality = rankingMetadataQuality(entry, preferredTitle)
-    if (quality.missingLabels.isNotEmpty()) {
-        append("，${quality.missingLabels.joinToString("、")}")
-    }
 }
 
 private fun hasSimplifiedChineseTitle(value: String): Boolean {

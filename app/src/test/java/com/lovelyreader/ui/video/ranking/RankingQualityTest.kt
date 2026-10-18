@@ -77,18 +77,18 @@ class RankingQualityTest {
     }
 
     @Test
-    fun `card semantics names rank score title and missing fields`() {
+    fun `card semantics names rank score and title without internal quality copy`() {
         val description = rankingCardContentDescription(
             entry(summary = "公开资料概览：《示例片》；当前快照未收录剧情正文。", poster = null),
             preferredTitle = "示例片",
-            aggregateScoreLabel = "综合参考分"
+            aggregateScoreLabel = "评分"
         )
 
         assertTrue(description.contains("第 1 名"))
         assertTrue(description.contains("示例片"))
-        assertTrue(description.contains("排名分 8.1"))
-        assertTrue(description.contains("简介待补充"))
-        assertTrue(description.contains("海报待补充"))
+        assertTrue(description.contains("评分 8.1"))
+        assertFalse(description.contains("排名分"))
+        assertFalse(description.contains("资料待补"))
     }
 
     @Test

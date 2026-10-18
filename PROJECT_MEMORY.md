@@ -1732,3 +1732,19 @@ Last known verified release state:
 - 本地提交 `c368cab` 和 annotated tag `v0.9.38+125` 已生成。
 - `git push origin main` 与 tag 推送被当前环境阻断：全局 URL 重写到 `kkgithub.com` 后 TLS 报 `SEC_E_WRONG_PRINCIPAL`；关闭校验后镜像不支持 DAV locking；直连 GitHub 443 不可达。
 - 因此本轮只确认本地候选与本地 tag，未声称源码已远端可见、Latest Release 已创建或 updater 公网资产可下载。
+
+## Round54 - 2026-10-18 - 排行榜终端文案清理与全量深测
+
+- 移除排行榜中面向内部验收/数据审计的来源覆盖、资料待补、快照、方法、原榜位、数据时间和“排名分/综合参考分”展示；卡片保留数字评分 tag、中文标题/元数据、简介、`评分 x/10` 与“去搜索”。
+- 设置页移除“高保真视觉验收”入口；错误、加载、刷新和重试状态保留为用户可执行提示。无障碍评分语义同步改为“评分”。
+- 版本仍为 `0.9.38/125`；根目录仅有当前 Debug/Release pair，SHA 分别为 `F4192C4CB7A610A7312A469BA3216BDA7348A08294B3BD4AAB6F8804F9E946A8`、`1E73D44D9D8EB02512104CB1A2A48E64D27502802653C7B75DDBB4A82A21DC9`。
+- 验证：Python `35/35`；Android JVM `604/0/0/8 skipped`；Debug/Release assemble、aapt2、Release apksigner v2 通过；MuMu `emulator-5554` fresh Release 完成书架/追剧/排行榜/筛选/刷新/搜索桥接/返回/有声/设置/更新检查，PID `3580` 存活，无 FATAL/OOM/ANR。证据见 `artifacts/candidates/20261018-ranking-copy-depth-v0.9.38/`。
+- 未关闭：无合法海报 URL 的条目继续确定性占位；当前数据仍为 IMDb+TVmaze 随包快照；本轮未 source push/tag/Latest Release，不称为已发布。本项目没有写入 worklog、timesheet、ZenTao 或工时报告。
+
+## 2026-10-18 Round55 - 播放器空白超时与片源回退 v0.9.40/127
+
+- 根因：`m.88ystv.com` 是 `www.88ystv.com` 的站内别名，旧 ready 判断把它当外部 provider；iframe/资源完成回调在没有可见媒体时提前宣告 ready，导致《九门》首源空白且无超时操作。直接顶层导航 provider 在 MuMu 返回 403，因此保留站内 iframe 策略。
+- 修复：canonical host 比较；playerReady 仅由真实外部 provider 完成或 inline media 确认；optional 资源错误不阻断；新增同集片源回退与超时“切换片源”按钮。MuMu 全局代理 `10.0.2.2:7897` 已清除并重启，不能将该测试环境问题写成代码根因。
+- 版本/构件：Android `0.9.40/127`；根目录严格只保留 `老婆的小营地-debug-v0.9.40.apk` SHA `03AC5D18907FE77893B83CBAAA1B76A5C710BD173D22A498488AB9621CB34A81` 与 `老婆的小营地-v0.9.40.apk` SHA `3AC6BDC06B4E9EB14227EA4D6E9066339F521B0F1DE075C5E50302E4E5E144EC`；v0.9.39 已移至 legacy。
+- 验证：ASCII 临时副本 `C:\CodexTemp\lovely-camp-test` Android JVM `607/0/0/8 skipped`；Python `35/35`；Debug/Release assemble、v2 单签名、zipalign 通过；MuMu 首源 15 秒超时卡片→切换片源→红牛资源第 1 集真实画面、暂停和 `00:07/39:10` 通过，无 FATAL/OOM/ANR。证据 `artifacts/candidates/20261018-player-resilience-v0.9.40/`。
+- 仍未关闭：家庭 Wi‑Fi 物理设备 WebView 子资源现场复测、source push/tag、GitHub Latest Release/public updater verification；本轮为本地验证候选，不称为公开发布。本项目没有写入 worklog、timesheet、ZenTao 或工时报告。

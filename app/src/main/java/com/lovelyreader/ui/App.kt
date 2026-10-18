@@ -207,7 +207,6 @@ fun LovelyReaderApp(
         audiobookViewModel.importTxt(uri)
     }
     var experience by rememberSaveable { mutableStateOf(AppExperience.Reader) }
-    var showVisualFixture by rememberSaveable { mutableStateOf(false) }
 
     val screen by viewModel.screen.collectAsState()
     val shelfBooks by viewModel.shelfBooks.collectAsState()
@@ -419,8 +418,7 @@ fun LovelyReaderApp(
         }
         Column(modifier = Modifier.fillMaxSize().background(appColors().cream)) {
         BackHandler(
-            enabled = !showVisualFixture &&
-                experience == AppExperience.Reader &&
+            enabled = experience == AppExperience.Reader &&
                 screen !is Screen.Reader &&
                 (readerBackDestination(screen) != null || shouldConsumeRootSystemBack(screen))
         ) {
@@ -430,12 +428,7 @@ fun LovelyReaderApp(
             modifier = if (shouldShowSharedAppChrome(screen)) Modifier.fillMaxWidth().weight(1f)
             else Modifier.fillMaxSize()
         ) {
-        if (showVisualFixture) {
-            HighFidelityDebugFixtureScreen(
-                onClose = { showVisualFixture = false },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (experience == AppExperience.Drama) {
+        if (experience == AppExperience.Drama) {
             DramaScreen(
                 viewModel = dramaViewModel,
                 rankingViewModel = rankingViewModel,
@@ -578,9 +571,6 @@ fun LovelyReaderApp(
                     }
                 }
             },
-            onOpenVisualFixture = if (highFidelityDebugFixtureEnabled(isDebugBuild)) {
-                { showVisualFixture = true }
-            } else null
         )
         }
         }

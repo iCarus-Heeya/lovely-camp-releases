@@ -19,8 +19,8 @@ android {
         applicationId = "com.lovelyreader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 125
-        versionName = "0.9.38"
+        versionCode = 127
+        versionName = "0.9.40"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -190,6 +190,8 @@ class DramaViewModel(
     private var pendingSearchQuery: String? = null
     private var pendingTitle: VideoTitle? = null
     private var pendingSourceId: String? = null
+    private var pendingPlaybackPosition: Int? = null
+    private val unavailablePlaybackSources = linkedSetOf<String>()
     private var lastOpenedTitle: VideoTitle? = null
     private val scope: CoroutineScope
         get() = coroutineScope ?: viewModelScope
@@ -314,6 +316,8 @@ class DramaViewModel(
         _selectedSource.value = null
         _sourceEpisodes.value = emptyList()
         _selectedEpisodeIds.value = emptySet()
+        pendingPlaybackPosition = null
+        unavailablePlaybackSources.clear()
         closePlayback()
         if (root == null && rootStatus.value.isRefreshing) {
             pendingTitle = title
@@ -381,7 +385,7 @@ class DramaViewModel(
         if (!rootStatus.value.isRefreshing) refreshRoot()
     }
 
-    fun selectSource(source: VideoSource) {
+    fun selectSource(source: VideoSource, preservePlayback: Boolean = false) {
         val detail = selectedTitle.value.detail ?: return
         if (source.titleId != detail.title.id || detail.sources.none { it.id == source.id }) return
         val root = rootStatus.value.root
@@ -390,9 +394,15 @@ class DramaViewModel(
         pendingSourceId = null
         library.selectSource(detail.title.id, source.id)
         _selectedSource.value = source
+        if (!preservePlayback) unavailablePlaybackSources.remove(source.id)
         _sourceEpisodes.value = emptyList()
         _selectedEpisodeIds.value = emptySet()
-        closePlayback()
+        if (preservePlayback) {
+            playbackRequest++
+        } else {
+            pendingPlaybackPosition = null
+            closePlayback()
+        }
         if (root == null && rootStatus.value.isRefreshing) {
             pendingSourceId = source.id
             _selectedTitle.value = _selectedTitle.value.copy(
@@ -431,8 +441,31 @@ class DramaViewModel(
                             error = null,
                             canRetry = false
                         )
+                        if (preservePlayback) {
+                            val pendingPosition = pendingPlaybackPosition
+                            val replacement = pendingPosition?.let { position ->
+                                matchingEpisodes.firstOrNull { it.position == position }
+                                    ?: matchingEpisodes.firstOrNull()
+                            }
+                            pendingPlaybackPosition = null
+                            if (replacement != null) {
+                                openEpisode(replacement)
+                            } else {
+                                _playback.value = _playback.value.copy(
+                                    isLoading = false,
+                                    message = "该片源没有对应剧集，请返回选集后手动选择。"
+                                )
+                            }
+                        }
                     },
                     onFailure = { error ->
+                        if (preservePlayback) {
+                            pendingPlaybackPosition = null
+                            _playback.value = _playback.value.copy(
+                                isLoading = false,
+                                message = "切换片源失败，请返回选集重试。"
+                            )
+                        }
                         val requestError = classifyDramaRequestError(error)
                         _selectedTitle.value = _selectedTitle.value.copy(
                             isLoading = false,
@@ -444,6 +477,40 @@ class DramaViewModel(
                 )
             }
         }
+    }
+
+    /** Whether the current title has another source that can be tried in-place. */
+    fun hasAlternativePlaybackSource(): Boolean {
+        val detail = selectedTitle.value.detail ?: return false
+        val current = selectedSource.value ?: return false
+        return detail.sources.any { it.id != current.id && it.id !in unavailablePlaybackSources }
+    }
+
+    /**
+     * Move to the next source without forcing the user back through the detail
+     * page. The current episode position is retained so a working source can
+     * resume the same episode automatically.
+     */
+    fun tryNextPlaybackSource(): Boolean {
+        val detail = selectedTitle.value.detail ?: return false
+        val current = selectedSource.value ?: return false
+        val episode = playback.value.episode ?: return false
+        unavailablePlaybackSources += current.id
+        val currentIndex = detail.sources.indexOfFirst { it.id == current.id }
+        val candidates = if (currentIndex >= 0) {
+            detail.sources.drop(currentIndex + 1) + detail.sources.take(currentIndex)
+        } else {
+            detail.sources
+        }.filter { it.id != current.id && it.id !in unavailablePlaybackSources }
+        val next = candidates.firstOrNull() ?: return false
+        pendingPlaybackPosition = episode.position
+        _playback.value = playback.value.copy(
+            media = null,
+            isLoading = true,
+            message = "正在切换到 ${next.label}…"
+        )
+        selectSource(next, preservePlayback = true)
+        return true
     }
 
     /** Retries loading episodes for the currently selected source. */
@@ -520,6 +587,7 @@ class DramaViewModel(
                     message = "该播放源没有提供可公开播放的媒体地址。请返回选集后尝试其他播放源。"
                 )
             } else {
+                unavailablePlaybackSources.remove(source.id)
                 library.recordSourceResult(selectedTitle.value.detail?.title?.id ?: return@launch, source.id, success = true)
                 library.recordViewing(selectedTitle.value.detail?.title ?: return@launch, source, episode)
                 _recentViewing.value = library.recentViewing()
