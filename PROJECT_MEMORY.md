@@ -1,5 +1,12 @@
 # Project Memory
 
+## 2026-10-18 — v0.9.40+127 公开发布完成
+
+- 已完成公开发布：源码 `main` 推送到 `ad640f67b3d7ec334adebd3f2762e70a2035048d`；精确注释标签 `v0.9.40+127` 指向同一发布树的标签提交 `1b8d0734aa70e491be54f0d911206e0d3d579704`。排行榜大文件已改为 Git LFS，发布工作流使用 `actions/checkout` 的 `lfs: true`。
+- GitHub Actions `39120242380` 已成功完成测试、签名构建、资产上传和发布后校验。GitHub Latest 为 [`v0.9.40+127`](https://github.com/iCarus-Heeya/lovely-camp-releases/releases/tag/v0.9.40%2B127)，公开更新器资产为 `lovely-camp-v0.9.40.apk`，公开 SHA-256 为 `0356FE313006A8B36E495DE4FDFD4B7D917FF1323A76C782E151D8DDDC18F8C0`，并包含 `release-manifest.json`。
+- 公开资产已下载复核：包名 `com.lovelyreader`、`versionName=0.9.40`、`versionCode=127`、target SDK 35；APK Signature Scheme v2 单签名和 zipalign 通过。根目录继续只保留当前版本化 Debug/Release APK 对；本地 Release 与 CI Release 的签名证书一致，文件字节因 CI 重建不要求相同。
+- 现场限制保持明确：家庭 Wi‑Fi 的真实 WebView 子资源和用户物理设备仍需现场复测；公开发布不等价于所有外站片源、Cast/DLNA 或受限网络链路均可用。
+
 ## 2026-10-02 — v0.9.23+110 排行榜全量范围与制作国家修正（当前本地候选）
 
 - 排行榜目录已从“票数≥5000/23k 条”扩展为 IMDb 公共评分 `numVotes>=1000` 的 63,681 条，`catalogVersion=2026-10-02.3`、`methodologyVersion=imdb-rated-scope-v2-tvmaze-enriched`；CN 2024/2025/2026 分别 33/37/9。
