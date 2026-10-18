@@ -1746,5 +1746,5 @@ Last known verified release state:
 - 根因：`m.88ystv.com` 是 `www.88ystv.com` 的站内别名，旧 ready 判断把它当外部 provider；iframe/资源完成回调在没有可见媒体时提前宣告 ready，导致《九门》首源空白且无超时操作。直接顶层导航 provider 在 MuMu 返回 403，因此保留站内 iframe 策略。
 - 修复：canonical host 比较；playerReady 仅由真实外部 provider 完成或 inline media 确认；optional 资源错误不阻断；新增同集片源回退与超时“切换片源”按钮。MuMu 全局代理 `10.0.2.2:7897` 已清除并重启，不能将该测试环境问题写成代码根因。
 - 版本/构件：Android `0.9.40/127`；根目录严格只保留 `老婆的小营地-debug-v0.9.40.apk` SHA `03AC5D18907FE77893B83CBAAA1B76A5C710BD173D22A498488AB9621CB34A81` 与 `老婆的小营地-v0.9.40.apk` SHA `3AC6BDC06B4E9EB14227EA4D6E9066339F521B0F1DE075C5E50302E4E5E144EC`；v0.9.39 已移至 legacy。
-- 验证：ASCII 临时副本 `C:\CodexTemp\lovely-camp-test` Android JVM `607/0/0/8 skipped`；Python `35/35`；Debug/Release assemble、v2 单签名、zipalign 通过；MuMu 首源 15 秒超时卡片→切换片源→红牛资源第 1 集真实画面、暂停和 `00:07/39:10` 通过，无 FATAL/OOM/ANR。证据 `artifacts/candidates/20261018-player-resilience-v0.9.40/`。
+- 验证：ASCII 临时副本 `C:\CodexTemp\lovely-camp-test` Android JVM `607/0/0/8 skipped`；Python `35/35`；Debug/Release assemble、v2 单签名、zipalign 通过；MuMu 首源 15 秒超时卡片→切换片源→红牛资源第 1 集真实画面、暂停和 `00:07/39:10` 通过，无 FATAL/OOM/ANR。随后卸载→重新安装→显式启动→追剧首页→排行榜冒烟，排行榜 XML 未发现内部验收词。证据 `artifacts/candidates/20261018-player-resilience-v0.9.40/`。
 - 仍未关闭：家庭 Wi‑Fi 物理设备 WebView 子资源现场复测、source push/tag、GitHub Latest Release/public updater verification；本轮为本地验证候选，不称为公开发布。本项目没有写入 worklog、timesheet、ZenTao 或工时报告。
